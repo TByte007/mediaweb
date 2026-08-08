@@ -17,46 +17,44 @@ Web interface at http://titan.voltage.nz/mweb/ → `web/` directory.
 php scan.php --help
 php scan.php --force-rescan              # full metadata rescan (after major changes)
 php scan.php --scan-only --verbose       # PTS probe → needs_fix (browser warning)
-php scan.php --fix-broken-avi --verbose  # optional packed-B-frame remux (does not clear needs_fix)
 php list.php --format=HEVC
 php list.php --name="search" --limit=20
 php list.php --count --format=AVC
 php list.php --columns=filename,width,height,duration_secs,needs_fix
 ```
 
-**Default behavior:** Skips files already in DB (fast incremental scans). New files get MediaInfo + AVI remux probe. Missing files marked as `is_deleted=1`. Use `--force-rescan` to re-extract metadata; `--scan-only` to refresh `needs_fix` on all AVIs.
+**Default behavior:** Skips files already in DB (fast incremental scans). New files get MediaInfo + PTS/`needs_fix` detect. Missing files marked as `is_deleted=1`. Use `--force-rescan` to re-extract metadata; `--scan-only` to refresh `needs_fix` on candidates.
 
 ## Config (`config.php`)
 
 - `MW_DB`: database path (`./media.db`)
 - `MW_BASE_URL`: `/mweb/`
 - `MW_FFMPEG`: `/usr/local/bin/ffmpeg` (not on www's PATH)
-- `MW_FIXABLE_DIRS` / `MW_ACTIVE_DIRS`: structured arrays `[ ['fs' => filesystem_path, 'url' => apache_url_prefix], ... ]`
+- `MW_MEDIA_DIRS`: media roots `[ ['fs' => filesystem_path, 'url' => apache_url_prefix], ... ]`
 
   Example:
   ```php
-  MW_FIXABLE_DIRS = [ ['fs' => '/fstore2/torrents/notorrent', 'url' => '/notor/'] ];
-  MW_ACTIVE_DIRS  = [ ['fs' => '/fstore2/torrents/download', 'url' => '/act_tor/'] ];
+  MW_MEDIA_DIRS = [
+    ['fs' => '/fstore2/torrents/notorrent', 'url' => '/notor/'],
+    ['fs' => '/fstore2/torrents/download', 'url' => '/act_tor/'],
+  ];
   ```
   Directories are independent; not tied to a parent path. Only the exposed `url` prefixes are publicly accessible.
 
-## Storage tiers
+## Media roots
 
-| Tier | Dir | URL prefix | Behavior |
-|------|-----|------------|----------|
-| Fixable | `/fstore2/torrents/notorrent` | `/notor/` | Optional packed-B-frame remux allowed; never clears PTS warnings |
-| Active | `/fstore2/torrents/download` | `/act_tor/` | Managed by torrent client; never modified |
+| Dir | URL prefix |
+|-----|------------|
+| `/fstore2/torrents/notorrent` | `/notor/` |
+| `/fstore2/torrents/download` | `/act_tor/` |
 
-## AVI issues: packed B-frames vs bad PTS
+## AVI / MPEG-4 Part 2 and browser playback
 
-Two different problems often get lumped together:
+Bad or missing PTS often plays fine in VLC/WMP (they invent timing) but jitters in browser demuxers. Stream-copy cannot restore real PTS. MediaWeb marks those files and plays them with **avbridge**.
 
-| Problem | What helps | Browser (movi-player) |
-|---------|------------|------------------------|
-| **Packed B-frames** (DivX/Xvid bitstream packing) | Remux AVI→MKV with `-bsf:v mpeg4_unpack_bframes` (`-c copy`) | Often better after unpack→MKV |
-| **Bad/missing PTS** | Desktop demuxers invent timing (VLC/WMP). Stream-copy cannot restore real PTS | Still jitters in movi-player → use **avbridge** |
+Packed B-frames (DivX/Xvid) are handled at play time by avbridge’s `mpeg4_unpack_bframes` BSF — not by server-side remux.
 
-**Do not propose server-side remux/re-encode to H.264** (or any bulk transcode) to “fix” `needs_fix` / browser playback. Not feasible here — treat as out of scope. Client-side playback (avbridge) and optional packed-B-frame remux (`--fix-broken-avi`) only.
+**Do not propose server-side remux/re-encode to H.264** (or any bulk transcode) to “fix” `needs_fix` / browser playback. Not feasible here — treat as out of scope. Client-side playback (avbridge) only.
 
 ### `needs_fix` = browser warning after a PTS test (mark only)
 
@@ -68,11 +66,9 @@ Candidates (not every video):
 
 **Test** (must fail to set the flag — codec alone is not enough):
 
-1. `ffmpeg -t 5 -i file -c copy` remux fails, or
+1. short `ffmpeg -t 5 -i file -c copy` probe fails, or
 2. ≥10% of sampled frames have `pts_time=N/A`, or
-3. ≥10% of sampled video packets have backwards DTS (non-monotonic; remux may still exit 0)
-
-Many AVI→MKV remuxes pass both tests and stay `needs_fix=0`.
+3. ≥10% of sampled video packets have backwards DTS (non-monotonic; probe may still exit 0)
 
 ```bash
 php scan.php --scan-only --verbose
@@ -105,17 +101,6 @@ npx esbuild node_modules/avbridge/dist/player.js --bundle --format=esm --platfor
   --outfile=../../web/vendor/avbridge/dist/player-browser.js
 ```
 
-### `--fix-broken-avi` = optional packed-B-frame remux only
-
-```bash
-php scan.php --fix-broken-avi --verbose
-# optional: --del-original
-```
-
-In fixable dirs (or `--dir=`): writes `name.fixed.mkv` via `-c copy -bsf:v mpeg4_unpack_bframes`.
-Uses `+genpts` only as a **mux aid** when unpack remux otherwise fails. If the source had PTS
-problems, `needs_fix` stays `1` on the new row.
-
 ## Deleted-file tracking
 
 Videos marked `is_deleted=1` when their file disappears between scans. They stay in the DB (playback counts kept) but are hidden from the library.
@@ -136,7 +121,7 @@ web/layout/*           → shared layout components
 
 **URL mappings:**
 
-Defined per directory in config.php (`MW_FIXABLE_DIRS` and `MW_ACTIVE_DIRS`). Each dir entry has:
+Defined per directory in config.php (`MW_MEDIA_DIRS`). Each dir entry has:
 
 - `fs`: filesystem root path
 - `url`: Apache URL prefix

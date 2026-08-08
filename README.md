@@ -8,7 +8,6 @@ PHP tool that scans video directories, extracts metadata with MediaInfo, stores 
 - MediaInfo → SQLite catalog (`media.db`)
 - Web library with search, thumbnails, and play counts
 - Browser playback via movi-player; **avbridge** (libav WASM) for files flagged `needs_fix`
-- Optional packed-B-frame AVI→MKV remux (`-c copy`) in fixable dirs
 - Soft-delete tracking when files disappear between scans
 
 ## Requirements
@@ -22,7 +21,7 @@ PHP tool that scans video directories, extracts metadata with MediaInfo, stores 
 
 ```bash
 cp config.example.php config.php
-# Edit MW_FFMPEG, MW_FFPROBE, MW_BASE_URL, MW_FIXABLE_DIRS, MW_ACTIVE_DIRS
+# Edit MW_FFMPEG, MW_FFPROBE, MW_BASE_URL, MW_MEDIA_DIRS
 
 php scan.php --verbose
 php list.php --limit=20
@@ -38,8 +37,7 @@ Ensure `web/covers/` is writable by the web user.
 php scan.php --help
 php scan.php --verbose                 # incremental scan
 php scan.php --force-rescan            # re-extract metadata for known files
-php scan.php --scan-only --verbose     # refresh needs_fix (PTS / remux probe)
-php scan.php --fix-broken-avi --verbose # optional packed-B remux → .fixed.mkv
+php scan.php --scan-only --verbose     # refresh needs_fix (PTS probe)
 
 php list.php --format=HEVC
 php list.php --name="search" --limit=20
@@ -58,21 +56,13 @@ Shared constants live in `config.php` (gitignored). Start from `config.example.p
 | `MW_DB` | SQLite path (default `./media.db`) |
 | `MW_BASE_URL` | Web app URL prefix (e.g. `/mweb/`) |
 | `MW_FFMPEG` / `MW_FFPROBE` | Absolute binary paths |
-| `MW_FIXABLE_DIRS` | Dirs where optional AVI remux is allowed |
-| `MW_ACTIVE_DIRS` | Read-only / torrent-managed dirs (never remuxed) |
+| `MW_MEDIA_DIRS` | Media roots: `[ 'fs' => path, 'url' => apache_prefix ]` |
 
 Each storage entry is independent: `[ 'fs' => '/path/on/disk', 'url' => '/apache_prefix/' ]`. Only the URL prefixes need to be public.
 
 ## Browser playback and `needs_fix`
 
-Some older AVI / MPEG-4 Part 2 (Xvid/DivX) files play fine in VLC but jitter or fail in a browser demuxer. MediaWeb marks those after a **PTS / remux probe** (`needs_fix=1`) — codec alone is not enough.
-
-| Situation | Approach |
-|-----------|----------|
-| Packed B-frames | Optional `--fix-broken-avi` (AVI→MKV, `mpeg4_unpack_bframes`) |
-| Bad / missing PTS | Client-side **avbridge** software decode (not server re-encode) |
-
-The library shows **[!]** for flagged titles. The player page uses avbridge for those (or `?player=avbridge`). Vendored under `web/vendor/avbridge/`.
+Some older AVI / MPEG-4 Part 2 (Xvid/DivX) files play fine in VLC but jitter or fail in a browser demuxer. MediaWeb marks those after a **PTS probe** (`needs_fix=1`) — codec alone is not enough. The library shows **[!]**; the player uses **avbridge** (or `?player=avbridge`). Vendored under `web/vendor/avbridge/`.
 
 Bulk server-side remux/re-encode to H.264 is intentionally out of scope.
 
@@ -80,18 +70,9 @@ Bulk server-side remux/re-encode to H.264 is intentionally out of scope.
 
 ```
 scan.php / list.php     CLI
-config.example.php      template → config.php
-database_schema.sql     videos table
-web/
-  index.php             router (library or view)
-  library.php           search + grid
-  view.php              player
-  getcover.php          thumbnails
-  increment-play.php    play-count AJAX
-  vendor/avbridge/      WASM player fallback
-  layout/               shared chrome
+config.php              local config (from config.example.php)
+media.db                SQLite catalog
+web/                    public app
 ```
 
-## License
-
-Use as you like for personal / local library hosting.
+See `AGENTS.md` for scanner details, `needs_fix` rules, and avbridge notes.

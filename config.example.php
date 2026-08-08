@@ -19,14 +19,9 @@ if (!defined('MW_ROOT')) {
     // Web
     define('MW_BASE_URL', '/mweb/');           // Apache maps /mweb/ -> web/
 
-    // Storage tiers
-    // Each entry: [ 'fs' => filesystem path, 'url' => Apache URL prefix ]
-    // Fixable: optional packed-B-frame AVI→MKV remux (--fix-broken-avi). Does not clear needs_fix.
-    define('MW_FIXABLE_DIRS', [
-        [ 'fs' => '/path/to/fixable-videos', 'url' => '/videos_fixable/' ],
-    ]);
-    // Active: managed by torrent client or otherwise read-only.
-    define('MW_ACTIVE_DIRS', [
-        [ 'fs' => '/path/to/active-videos', 'url' => '/videos_active/' ],
+    // Media roots — each entry: [ 'fs' => filesystem path, 'url' => Apache URL prefix ]
+    define('MW_MEDIA_DIRS', [
+        [ 'fs' => '/path/to/library-videos', 'url' => '/videos_lib/' ],
+        [ 'fs' => '/path/to/other-videos', 'url' => '/videos2/' ],
     ]);
 }

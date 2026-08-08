@@ -41,7 +41,7 @@ $v = [
 ];
 $filepath   = $row['filepath'];
 $videoUrl   = null;
-foreach (array_merge(MW_FIXABLE_DIRS, MW_ACTIVE_DIRS) as $dir) {
+foreach (MW_MEDIA_DIRS as $dir) {
     $fsRoot = rtrim($dir['fs'], '/');
     if (str_starts_with($filepath, $fsRoot)) {
         $videoUrl = $dir['url'] . ltrim(str_replace($fsRoot . '/', '', $filepath), '/');

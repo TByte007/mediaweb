@@ -8,56 +8,41 @@
  *
  * needs_fix (browser warning, after PTS tests — not codec-only):
  *   Candidates: .avi, or MPEG-4 Part 2 / Xvid / DivX (not H.264 / V_MPEG4/ISO/AVC).
- *   Broken if remux -c copy fails OR ≥10% sampled frames have pts N/A.
- *   Desktop players (VLC/WMP) invent PTS and play fine. Stream-copy cannot cure browser PTS.
- *
- * --fix-broken-avi (optional packed-B-frame remux, AVI only):
- *   AVI → .fixed.mkv with mpeg4_unpack_bframes (-c copy). genpts is only a mux aid
- *   when the remux otherwise fails — it does not clear needs_fix / fix browser jitter.
+ *   Broken if short -c copy probe fails OR ≥10% sampled frames have pts N/A
+ *   OR ≥10% packet DTS regressions.
+ *   Desktop players (VLC/WMP) invent PTS and play fine; browsers use avbridge.
  */
 
 declare(strict_types=1);
 
 require __DIR__ . '/config.php';
 
-$scanDirs = array_merge(
-    array_map(fn($d) => rtrim($d['fs'], '/'), MW_FIXABLE_DIRS),
-    array_map(fn($d) => rtrim($d['fs'], '/'), MW_ACTIVE_DIRS)
-);
+$scanDirs = array_map(fn($d) => rtrim($d['fs'], '/'), MW_MEDIA_DIRS);
 $dbFile      = MW_DB;
 $verbose     = false;
-$fixBroken   = false;
-$delOriginal = false;
 $scanOnly    = false;
 $forceRescan = false;
 $dirOverride = false;
 
-$opts = getopt('', ['dir:', 'db:', 'verbose', 'fix-broken-avi', 'scan-only', 'del-original', 'force-rescan', 'help']);
+$opts = getopt('', ['dir:', 'db:', 'verbose', 'scan-only', 'force-rescan', 'help']);
 
 if (isset($opts['help'])) {
-    $fixableList = implode("\n", array_map(fn($d) => "    - {$d['fs']}  ({$d['url']})", MW_FIXABLE_DIRS));
-    $activeList  = implode("\n", array_map(fn($d) => "    - {$d['fs']}  ({$d['url']})", MW_ACTIVE_DIRS));
+    $dirList = implode("\n", array_map(fn($d) => "    - {$d['fs']}  ({$d['url']})", MW_MEDIA_DIRS));
     echo <<<USAGE
 Usage: php scan.php [options]
 
 Options:
-    --dir=DIR            Comma-separated directories to scan (default: all fixable + active dirs)
+    --dir=DIR            Comma-separated directories to scan (default: MW_MEDIA_DIRS)
     --db=FILE            SQLite database file (default: MW_DB)
     --verbose            Show progress as files are processed
-    --scan-only          Refresh needs_fix (AVI remux probe + MPEG-4/Xvid in any container)
-    --fix-broken-avi     Optional packed-B-frame remux in fixable dirs (AVI→.fixed.mkv, -c copy).
-                         Unpacks DivX-style B-frames; does NOT clear needs_fix / fix browser PTS jitter.
-    --del-original       With --fix-broken-avi: delete original AVI and rename to .mkv
+    --scan-only          Refresh needs_fix (PTS probe + MPEG-4/Xvid in any container)
     --force-rescan       Re-run metadata extract on files already in the database
     --help               Show this help
 
 Scans for: mkv, mp4, avi, mov, webm, wmv, flv, m4v
 
-Fixable directories (MW_FIXABLE_DIRS):
-$fixableList
-
-Active directories (never modified by --fix-broken-avi):
-$activeList
+Configured directories (MW_MEDIA_DIRS):
+$dirList
 
 Behavior:
     Default:
@@ -67,16 +52,12 @@ Behavior:
     needs_fix (PTS / browser warning):
         Candidates: .avi, or MPEG-4 Part 2 / Xvid / DivX in any container
         (not H.264 — ignore V_MPEG4/ISO/AVC).
-        Test: remux -c copy fails, OR ≥10% frames pts N/A, OR ≥10% packet DTS
-        go backwards (non-monotonic DTS; remux may still exit 0) → needs_fix=1.
-        Codec alone does not set the flag (many remuxed MKVs are fine by this test).
+        Test: short -c copy probe fails, OR ≥10% frames pts N/A, OR ≥10% packet DTS
+        go backwards (non-monotonic DTS; probe remux may still exit 0) → needs_fix=1.
+        Codec alone does not set the flag.
 
     --scan-only:
         Re-check candidates above; UPDATE needs_fix from the PTS tests.
-
-    --fix-broken-avi:
-        AVI only, fixable dirs / --dir=: remux with -bsf:v mpeg4_unpack_bframes (-c copy).
-        +genpts only as mux aid. Keeps needs_fix when the source had PTS problems.
 
 USAGE;
     echo str_replace('MW_DB', MW_DB, "Default DB: MW_DB\n");
@@ -85,15 +66,8 @@ USAGE;
 
 if (!empty($opts['db']))              $dbFile      = $opts['db'];
 if (isset($opts['verbose']))          $verbose     = true;
-if (isset($opts['fix-broken-avi']))   $fixBroken   = true;
 if (isset($opts['scan-only']))        $scanOnly    = true;
-if (isset($opts['del-original']))     $delOriginal = true;
 if (isset($opts['force-rescan']))     $forceRescan = true;
-
-if ($scanOnly && $fixBroken) {
-    echo "Warning: both --scan-only and --fix-broken-avi specified; treating as --fix-broken-avi.\n";
-    $scanOnly = false;
-}
 
 if (!file_exists(MW_FFMPEG)) {
     echo "Error: ffmpeg not found at " . MW_FFMPEG . "\n";
@@ -203,16 +177,6 @@ SQL
 
 $stmtFlag = $db->prepare('UPDATE videos SET needs_fix = ?, is_deleted = 0, updated_at = datetime(\'now\') WHERE filepath = ?');
 $stmtMeta = $db->prepare('SELECT video_format, video_codec, needs_fix FROM videos WHERE filepath = ?');
-$stmtRetarget = $db->prepare(<<<SQL
-UPDATE videos SET
-  filepath = ?, filename = ?, directory = ?, filesize_bytes = ?,
-  duration_secs = ?, video_format = ?, video_codec = ?, width = ?, height = ?,
-  aspect_ratio = ?, frame_rate = ?, video_bitrate = ?, audio_tracks = ?,
-  subtitle_tracks = ?, title = ?, full_info = ?, needs_fix = ?, is_deleted = 0,
-  updated_at = datetime('now')
-WHERE filepath = ?
-SQL
-);
 
 $knownFiles = [];
 if (!$forceRescan) {
@@ -258,7 +222,7 @@ function mediainfoJson(string $filepath): ?array
     return $json;
 }
 
-/** True if short -c copy remux fails — usually missing/bad PTS. */
+/** True if short -c copy probe fails — usually missing/bad PTS. */
 function remuxProbeFails(string $filepath): bool
 {
     $testFile = sys_get_temp_dir() . '/mediaweb_probe_' . getmypid() . '.mkv';
@@ -320,8 +284,8 @@ function ptsMissingRatio(string $filepath, int $sampleFrames = 50): float
 
 /**
  * Fraction of sampled video packets whose DTS goes backwards.
- * Catches MKV/Xvid files that still have PTS values (so ptsMissingRatio=0)
- * and remux with -c copy (exit 0) but emit Non-monotonic DTS — browsers choke.
+ * Catches files that still have PTS values (so ptsMissingRatio=0)
+ * and a short -c copy probe exits 0 but emit Non-monotonic DTS — browsers choke.
  * Decode-order PTS “regressions” from B-frames are normal; DTS must stay monotonic.
  */
 function dtsRegressionRatio(string $filepath, int $samplePackets = 80): float
@@ -352,7 +316,7 @@ function dtsRegressionRatio(string $filepath, int $samplePackets = 80): float
 /**
  * needs_fix after a real PTS/DTS test (not codec-only).
  * Candidates: .avi, or legacy MPEG-4 Part 2 / Xvid / DivX in any container.
- * Broken if remux -c copy fails, ≥10% frames pts N/A, or ≥10% packet DTS regressions.
+ * Broken if short -c copy probe fails, ≥10% frames pts N/A, or ≥10% packet DTS regressions.
  */
 function detectNeedsFix(string $filepath, ?string $format = null, ?string $codec = null): bool
 {
@@ -361,63 +325,6 @@ function detectNeedsFix(string $filepath, ?string $format = null, ?string $codec
     if (remuxProbeFails($filepath)) return true;
     if (ptsMissingRatio($filepath) >= 0.10) return true;
     return dtsRegressionRatio($filepath) >= 0.10;
-}
-
-/**
- * Optional AVI→MKV remux to unpack DivX-style packed B-frames (-c copy).
- * Uses +genpts only if needed so the muxer can finish — that does not fix PTS for browsers.
- * Returns new path on success, or original path on failure / nothing to do.
- */
-function remuxAviPackedBframes(string $filepath, bool $verbose, bool $delOriginal = false): string
-{
-    $dir = dirname($filepath);
-    $outFile = $dir . '/' . pathinfo($filepath, PATHINFO_FILENAME) . '.fixed.mkv';
-    if (file_exists($outFile) && filesize($outFile) > 0) {
-        return $outFile;
-    }
-
-    $attempts = [
-        // Prefer unpack without inventing PTS when the source already has timestamps.
-        sprintf(
-            '%s -nostdin -y -i %s -c copy -bsf:v mpeg4_unpack_bframes %s 2>&1',
-            escapeshellarg(MW_FFMPEG),
-            escapeshellarg($filepath),
-            escapeshellarg($outFile)
-        ),
-        // Mux aid only when plain unpack remux fails (typical missing PTS).
-        sprintf(
-            '%s -nostdin -y -fflags +genpts -i %s -c copy -bsf:v mpeg4_unpack_bframes %s 2>&1',
-            escapeshellarg(MW_FFMPEG),
-            escapeshellarg($filepath),
-            escapeshellarg($outFile)
-        ),
-    ];
-
-    foreach ($attempts as $i => $cmd) {
-        @unlink($outFile);
-        if ($verbose) {
-            echo $i === 0
-                ? "  [REMUX] unpack B-frames → $outFile\n"
-                : "  [REMUX] unpack + genpts (mux aid) → $outFile\n";
-        }
-        exec($cmd, $out, $code);
-        if ($code === 0 && file_exists($outFile) && filesize($outFile) > 0) {
-            if ($delOriginal) {
-                $finalFile = $dir . '/' . pathinfo($filepath, PATHINFO_FILENAME) . '.mkv';
-                if ($verbose) echo "  [DEL] $filepath\n";
-                @unlink($filepath);
-                if (@rename($outFile, $finalFile)) {
-                    if ($verbose) echo "  [RENAME] → $finalFile\n";
-                    return $finalFile;
-                }
-            }
-            return $outFile;
-        }
-    }
-
-    @unlink($outFile);
-    if ($verbose) echo "  [WARN] Remux failed: $filepath\n";
-    return $filepath;
 }
 
 function tracksByType(array $json, string $type): array
@@ -456,21 +363,6 @@ function upsertVideo(\SQLite3Stmt $stmt, string $path, array $json, int $needsFi
     $stmt->execute();
 }
 
-$fixableRoots = array_map(fn($d) => rtrim($d['fs'], '/'), MW_FIXABLE_DIRS);
-// Explicit --dir= with --fix-broken-avi: treat those trees as fixable (lab / one-off).
-if ($dirOverride && $fixBroken) {
-    $fixableRoots = $scanDirs;
-}
-$dirIsFixable = static function (string $dir) use ($fixableRoots): bool {
-    $dir = rtrim($dir, '/');
-    foreach ($fixableRoots as $root) {
-        if ($dir === $root || str_starts_with($dir . '/', $root . '/')) {
-            return true;
-        }
-    }
-    return false;
-};
-
 $files = [];
 foreach ($scanDirs as $scanDir) {
     safeWalk($scanDir, $files, $extensions, $verbose);
@@ -483,7 +375,6 @@ $db->exec('BEGIN;');
 $processed = 0;
 $skipped   = 0;
 $errors    = 0;
-$fixed     = 0;
 $flagged   = 0;
 $updated   = 0;
 
@@ -565,56 +456,6 @@ foreach ($files as $filepath) {
         continue;
     }
 
-    // --fix-broken-avi: optional packed-B-frame remux; keep needs_fix if PTS was bad.
-    if ($fixBroken && $isAvi) {
-        if ($dirIsFixable(dirname($filepath))) {
-            $hadPtsIssue = remuxProbeFails($filepath) ? 1 : 0;
-            $newPath = remuxAviPackedBframes($filepath, $verbose, $delOriginal);
-            if ($newPath !== $filepath) {
-                $fixed++;
-                if ($hadPtsIssue && $verbose) {
-                    echo "  [NOTE] PTS warning kept (needs_fix=1); remux is not a browser fix\n";
-                }
-                $json = mediainfoJson($newPath);
-                if (!$json) { $errors++; continue; }
-                // Keep PTS warning from the source AVI; remux does not cure browser jitter.
-                $keepFlag = $hadPtsIssue;
-                $general = tracksByType($json, 'General')[0] ?? [];
-                $video = tracksByType($json, 'Video')[0] ?? [];
-                if ($known) {
-                    $stmtRetarget->reset();
-                    $stmtRetarget->bindValue(1, $newPath);
-                    $stmtRetarget->bindValue(2, basename($newPath));
-                    $stmtRetarget->bindValue(3, dirname($newPath));
-                    $stmtRetarget->bindValue(4, filesize($newPath) ?: 0);
-                    $stmtRetarget->bindValue(5, $general['Duration'] ?? null);
-                    $stmtRetarget->bindValue(6, $video['Format'] ?? null);
-                    $stmtRetarget->bindValue(7, $video['CodecID'] ?? ($video['Format_Profile'] ?? null));
-                    $stmtRetarget->bindValue(8, $video['Width'] ?? null);
-                    $stmtRetarget->bindValue(9, $video['Height'] ?? null);
-                    $stmtRetarget->bindValue(10, $video['DisplayAspectRatio_Simplified'] ?? null);
-                    $stmtRetarget->bindValue(11, $video['FrameRate'] ?? null);
-                    $stmtRetarget->bindValue(12, $video['BitRate'] ?? null);
-                    $stmtRetarget->bindValue(13, count(tracksByType($json, 'Audio')));
-                    $stmtRetarget->bindValue(14, count(tracksByType($json, 'Text')));
-                    $stmtRetarget->bindValue(15, $general['Title'] ?? null);
-                    $stmtRetarget->bindValue(16, $json['_raw'] ?? null);
-                    $stmtRetarget->bindValue(17, $keepFlag);
-                    $stmtRetarget->bindValue(18, $filepath);
-                    $stmtRetarget->execute();
-                    $scannedPaths[] = $newPath;
-                } else {
-                    upsertVideo($stmtUpsert, $newPath, $json, $keepFlag);
-                    $scannedPaths[] = $newPath;
-                }
-                if ($keepFlag) $flagged++;
-                if ($processed % 50 === 0) { $db->exec('COMMIT;'); $db->exec('BEGIN;'); }
-                continue;
-            }
-        }
-        // Not remuxed (active dir or remux failed): fall through to normal upsert/flag.
-    }
-
     if ($known && !$forceRescan) {
         $skipped++;
         if ($verbose) echo "  [SKIP] $filepath\n";
@@ -668,7 +509,6 @@ echo "\nScan complete.\n";
 echo "  Processed: $processed\n";
 echo "  Skipped:   $skipped (already in database)\n";
 if ($scanOnly) echo "  Updated:   $updated (needs_fix refreshed)\n";
-if ($fixBroken) echo "  Remuxed:   $fixed (packed B-frames / container; needs_fix preserved if PTS)\n";
 echo "  Flagged:   $flagged (needs_fix / PTS browser warning)\n";
 echo "  Errors:    $errors\n";
 echo "  Database:  $dbFile\n";
