@@ -31,10 +31,15 @@ body {
 .wrap { max-width: 1400px; margin: 0 auto; padding: 0 24px; }
 .header-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .logo {
+    display: flex; flex-direction: column; gap: 1px;
     font-size: 19px; font-weight: 700; color: var(--accent);
-    text-decoration: none; white-space: nowrap;
+    text-decoration: none; white-space: nowrap; line-height: 1.05;
 }
 .logo span { color: var(--text); }
+.logo .logo-owner {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted);
+}
 .search-wrap { flex: 1 1 200px; max-width: 420px; position: relative; }
 .search-input {
     width: 100%; padding: 9px 36px 9px 36px;
@@ -65,23 +70,18 @@ body {
 .player-pref option { color: #1a1a1a; background: #fff; }
 .stats { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .len-filters {
-    display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+    display: inline-flex; gap: 2px; padding: 3px;
     border-radius: 999px; border: 1px solid rgba(255,255,255,0.06);
-    background: rgba(255,255,255,0.03); flex: 0 0 auto;
+    background: rgba(255,255,255,0.03);
 }
 .len-btn {
-    display: inline-flex; align-items: baseline; gap: 5px;
     padding: 6px 12px; border-radius: 999px; text-decoration: none;
     font-size: 12px; font-weight: 600; color: var(--muted);
     transition: color 0.15s, background 0.15s;
 }
 .len-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
 .len-btn.active { color: #fff; background: var(--accent); }
-.len-btn .len-hint {
-    font-size: 10px; font-weight: 500; opacity: 0.55;
-    font-variant-numeric: tabular-nums;
-}
-.len-btn.active .len-hint { opacity: 0.8; }
+.len-btn .len-hint { margin-left: 4px; font-size: 10px; font-weight: 500; opacity: 0.55; }
 main { max-width: 1400px; margin: 0 auto; padding: 24px 24px 60px; }
 .info { margin-bottom: 14px; font-size: 12px; color: var(--muted); }
 .info strong { color: var(--accent); }
@@ -228,7 +228,7 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
 <header class="topbar">
 <div class="wrap">
     <div class="header-row">
-        <a class="logo" href="<?= $basePath ?>">Media<span>Web</span></a>
+        <a class="logo" href="<?= $basePath ?>"><?php if (MW_OWNER !== ''): ?><span class="logo-owner"><?= htmlspecialchars(MW_OWNER) ?></span><?php endif; ?>Media<span>Web</span></a>
         <form class="search-wrap<?= ($search ?? '') !== '' ? ' has-query' : '' ?>" action="<?= $basePath ?>" method="get" id="search-form">
             <span class="search-icon">&#128269;</span>
             <input class="search-input" id="search-input" type="search" name="q" placeholder="Search videos..." value="<?= htmlspecialchars($search ?? '') ?>" autocomplete="off">
@@ -237,22 +237,11 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
             <input type="hidden" name="len" value="<?= htmlspecialchars($len) ?>">
             <?php endif; ?>
         </form>
-        <?php if (!empty($showLenFilters)): ?>
+        <?php if (isset($lenFilters)): ?>
         <nav class="len-filters" aria-label="Filter by length">
-            <?php
-            $lenOpts = [
-                ''       => ['All', ''],
-                'movie'  => ['Movies', '≥1h'],
-                'series' => ['Series', '10–60m'],
-                'clip'   => ['Clips', '<10m'],
-            ];
-            foreach ($lenOpts as $key => [$label, $hint]):
-                $active = ($len ?? '') === $key ? ' active' : '';
-                $href = pageUrl(['len' => $key === '' ? null : $key, 'page' => null]);
-                $hintHtml = $hint !== '' ? ' <span class="len-hint">' . htmlspecialchars($hint) . '</span>' : '';
-                $titleAttr = $hint !== '' ? ' title="' . htmlspecialchars($hint) . '"' : '';
-            ?>
-            <a class="len-btn<?= $active ?>" href="<?= htmlspecialchars($href) ?>"<?= $titleAttr ?>><?= $label ?><?= $hintHtml ?></a>
+            <a class="len-btn<?= $len === '' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => null, 'page' => null])) ?>">All</a>
+            <?php foreach ($lenFilters as $key => [, $label, $hint]): ?>
+            <a class="len-btn<?= $len === $key ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => $key, 'page' => null])) ?>"><?= $label ?> <span class="len-hint"><?= htmlspecialchars($hint) ?></span></a>
             <?php endforeach; ?>
         </nav>
         <?php endif; ?>

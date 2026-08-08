@@ -18,6 +18,7 @@ if (!defined('MW_ROOT')) {
 
     // Web
     define('MW_BASE_URL', '/mweb/');           // Apache maps /mweb/ -> web/
+    define('MW_OWNER', 'YourNick');            // Shown above the MediaWeb logo (empty to hide)
 
     // Media roots — each entry: [ 'fs' => filesystem path, 'url' => Apache URL prefix ]
     define('MW_MEDIA_DIRS', [

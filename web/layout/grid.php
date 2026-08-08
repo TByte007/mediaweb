@@ -1,13 +1,10 @@
 <main class="wrap">
 
-<?php
-$lenLabels = ['movie' => 'Movies', 'series' => 'Series', 'clip' => 'Clips'];
-if ($search || $len !== ''):
-    $bits = [];
-    if ($search) $bits[] = 'for "<strong>' . htmlspecialchars($search) . '</strong>"';
-    if ($len !== '') $bits[] = 'in <strong>' . ($lenLabels[$len] ?? $len) . '</strong>';
-?>
-<div class="info">Found <strong><?= number_format($total) ?></strong> result<?= $total != 1 ? 's' : '' ?> <?= implode(' ', $bits) ?></div>
+<?php if ($search || $len !== ''): ?>
+<div class="info">Found <strong><?= number_format($total) ?></strong> result<?= $total != 1 ? 's' : '' ?><?php
+    if ($search) echo ' for "<strong>' . htmlspecialchars($search) . '</strong>"';
+    if ($len !== '') echo ' in <strong>' . $lenFilters[$len][1] . '</strong>';
+?></div>
 <?php endif; ?>
 
 <?php if (empty($videos)): ?>
