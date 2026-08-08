@@ -1,0 +1,16 @@
+# Local ffmpeg/AVI experiments — safe to delete
+tmp/
+
+# Machine-local config (copy from config.example.php)
+config.php
+
+# Library data — do not publish
+media.db
+web/covers/
+
+# Local player/ffmpeg lab samples
+web/lab/
+
+# Local tooling / IDE
+.crush/
+.cursor/

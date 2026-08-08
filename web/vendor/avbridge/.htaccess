@@ -1,0 +1,3 @@
+AddType application/wasm .wasm
+AddType text/javascript .mjs
+AddType text/javascript .js
