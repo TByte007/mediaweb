@@ -59,7 +59,7 @@ while ($row = $result->fetchArray(2)) {
         'filesize_bytes'   => (int)($row[7] ?? 0),
         'audio_tracks'     => (int)($row[8] ?? 0),
         'subtitle_tracks'  => (int)($row[9] ?? 0),
-        'title'            => cleanTitle($row[10]) ?: basename($row[1]),
+        'title'            => videoPrettyTitle((string)$row[1], $row[10] ?? null),
         'playback_count'   => (int)($row[11] ?? 0),
         'needs_fix'        => (int)($row[12] ?? 0),
     ];

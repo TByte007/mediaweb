@@ -35,11 +35,12 @@ $v = [
     'filesize_bytes'   => (int)$row['filesize_bytes'],
     'audio_tracks'     => (int)$row['audio_tracks'],
     'subtitle_tracks'  => (int)$row['subtitle_tracks'],
-    'title'            => cleanTitle($row['title']) ?: basename($row['filename']),
+    'title'            => videoPrettyTitle((string)$row['filename'], $row['title'] ?? null),
     'playback_count'   => (int)$row['playback_count'],
     'needs_fix'        => isset($row['needs_fix']) ? (int)$row['needs_fix'] : 0,
 ];
 $filepath   = $row['filepath'];
+$rawName    = basename((string)$row['filename']);
 $videoUrl   = null;
 foreach (MW_MEDIA_DIRS as $dir) {
     $fsRoot = rtrim($dir['fs'], '/');
@@ -85,18 +86,59 @@ require __DIR__ . '/layout/header.php';
     <movi-player id="player" src="<?= $videoUrlEsc ?>" controls<?= $moviSw ? ' sw' : '' ?>></movi-player>
 <?php endif; ?>
 </div>
-<div class="info-panel" style="margin-top:16px">
-    <h1><?= htmlspecialchars($v['title']) ?></h1>
-    <table class="info-table">
-        <tr><td>Codec</td><td><?= htmlspecialchars($v['video_format']) ?></td></tr>
-        <tr><td>Resolution</td><td><?= $v['width'] ?>×<?= $v['height'] ?></td></tr>
-        <tr><td>Duration</td><td><?= fmtDuration($v['duration_secs']) ?></td></tr>
-        <tr><td>Size</td><td><?= fmtSize($v['filesize_bytes']) ?></td></tr>
-        <tr><td>Audio</td><td><?= $v['audio_tracks'] ?> track<?= $v['audio_tracks'] != 1 ? 's' : '' ?></td></tr>
-        <tr><td>Subtitles</td><td><?= $v['subtitle_tracks'] ?> track<?= $v['subtitle_tracks'] != 1 ? 's' : '' ?></td></tr>
-        <tr><td>Plays</td><td><?= number_format($v['playback_count']) ?></td></tr>
-        <tr><td>Player</td><td><?= $useAvbridge ? 'avbridge' : 'movi' ?><?= $playerPref !== 'auto' ? ' (forced)' : ($v['needs_fix'] ? ' (needs_fix)' : '') ?></td></tr>
-    </table>
+<?php
+$playerNote = $playerPref !== 'auto' ? 'forced' : ($v['needs_fix'] ? 'needs_fix' : '');
+$audioLabel = $v['audio_tracks'] . ' track' . ($v['audio_tracks'] != 1 ? 's' : '');
+$subsLabel = $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's' : '');
+?>
+<div class="info-panel">
+    <h1 class="video-title">
+        <span class="video-title-pretty"><?= htmlspecialchars($v['title']) ?></span>
+        <span class="video-title-file">(<?= htmlspecialchars($rawName) ?>)</span>
+    </h1>
+    <div class="meta-grid">
+        <div class="meta meta-codec">
+            <span class="meta-k">Codec</span>
+            <span class="meta-v"><?= htmlspecialchars($v['video_format']) ?></span>
+        </div>
+        <div class="meta meta-res">
+            <span class="meta-k">Resolution</span>
+            <span class="meta-v"><?= $v['width'] ?>×<?= $v['height'] ?></span>
+        </div>
+        <div class="meta meta-dur">
+            <span class="meta-k">Duration</span>
+            <span class="meta-v"><?= fmtDuration($v['duration_secs']) ?></span>
+        </div>
+        <div class="meta meta-size">
+            <span class="meta-k">Size</span>
+            <span class="meta-v"><?= fmtSize($v['filesize_bytes']) ?></span>
+        </div>
+        <div class="meta meta-audio">
+            <span class="meta-k">Audio</span>
+            <span class="meta-v"><?= $audioLabel ?></span>
+        </div>
+        <div class="meta meta-subs">
+            <span class="meta-k">Subtitles</span>
+            <span class="meta-v"><?= $subsLabel ?></span>
+        </div>
+        <div class="meta meta-plays">
+            <span class="meta-k">Plays</span>
+            <span class="meta-v"><?= number_format($v['playback_count']) ?></span>
+        </div>
+        <div class="meta meta-player">
+            <span class="meta-k">Player</span>
+            <span class="meta-v"><?= $useAvbridge ? 'avbridge' : 'movi' ?><?php if ($playerNote !== ''): ?><span class="meta-note"><?= htmlspecialchars($playerNote) ?></span><?php endif; ?></span>
+        </div>
+    </div>
+<?php if ($v['needs_fix']): ?>
+    <div class="play-note">
+        <div class="play-note-title">Playback note</div>
+        <p>Flagged for bad/missing PTS. This page uses <strong>avbridge</strong>
+            (libav.js software decode + Range streaming) instead of movi-player —
+            closer to how VLC invents timestamps, but CPU-heavy and not guaranteed smooth.</p>
+        <p>If it still jitters, <a href="<?= $videoUrlEsc ?>" download>download the file</a> and open it in <strong>VLC</strong>.</p>
+    </div>
+<?php endif; ?>
     <a class="back-link" href="<?= MW_BASE_URL ?>">&#8592; Back to library</a>
 </div>
 </div>
@@ -147,14 +189,5 @@ player.addEventListener('pointerdown', start);
 player.addEventListener('error', (e) => console.warn('[avbridge] error', e));
 <?php endif; ?>
 </script>
-
-<?php if ($v['needs_fix']): ?>
-<div style="margin:16px 0;padding:10px 14px;background:#2a221a;border-left:3px solid #e6a817;border-radius:4px;font-size:13px;line-height:1.5;color:#e0d0b0;">
-    <strong>⚠ Playback note:</strong> Flagged for bad/missing PTS. This page uses
-    <strong>avbridge</strong> (libav.js software decode + Range streaming) instead of movi-player —
-    closer to how VLC invents timestamps, but CPU-heavy and not guaranteed smooth.<br>
-    If it still jitters, <a href="<?= $videoUrlEsc ?>" download style="color:#e6a817;text-decoration:underline;">download the file</a> and open it in <strong>VLC</strong>.
-</div>
-<?php endif; ?>
 
 <?php require __DIR__ . '/layout/footer.php'; ?>

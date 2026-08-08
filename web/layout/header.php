@@ -129,20 +129,79 @@ avbridge-video::part(stage),
 avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height: 100%; }
 .player-wrap video { width: 100%; height: 100%; }
 .info-panel {
-    flex: 0 0 340px; background: var(--card); border-radius: 12px;
-    padding: 20px; border: 1px solid rgba(255,255,255,0.06);
-    display: flex; flex-direction: column; gap: 8px;
+    margin-top: 16px; background: var(--card); border-radius: 12px;
+    padding: 20px 22px 18px; border: 1px solid rgba(255,255,255,0.06);
+    display: flex; flex-direction: column; gap: 14px;
 }
-.info-panel h1 { font-size: 20px; font-weight: 700; line-height: 1.35; }
-.info-table { width: 100%; font-size: 12px; margin-top: 8px; }
-.info-table tr { border-bottom: 1px solid rgba(255,255,255,0.04); }
-.info-table td:first-child { color: var(--muted); padding: 5px 8px 5px 0; }
-.info-table td:last-child { text-align: right; padding: 5px 0; }
-.back-link { margin-top: 6px; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); text-decoration: none; font-size: 12px; }
+.info-panel h1, .video-title {
+    font-size: 22px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em;
+}
+.video-title-file {
+    margin-left: 0.35em; font-size: 13px; font-weight: 500; letter-spacing: 0;
+    color: var(--muted);
+}
+.meta-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.meta {
+    border-radius: 8px; padding: 10px 12px 10px 14px;
+    border: 1px solid rgba(255,255,255,0.05);
+    border-left-width: 3px;
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+}
+.meta-k {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.meta-v {
+    font-size: 15px; font-weight: 600; color: var(--text);
+    font-variant-numeric: tabular-nums; line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+.meta-v .meta-note {
+    display: block; margin-top: 2px;
+    font-size: 11px; font-weight: 500; color: var(--muted);
+}
+.meta-codec { background: rgba(124,156,255,0.1); border-left-color: #7c9cff; }
+.meta-codec .meta-k { color: #9bb3ff; }
+.meta-res { background: rgba(94,234,212,0.09); border-left-color: #5eead4; }
+.meta-res .meta-k { color: #7ef0dc; }
+.meta-dur { background: rgba(134,239,172,0.09); border-left-color: #86efac; }
+.meta-dur .meta-k { color: #9df4bc; }
+.meta-size { background: rgba(251,191,36,0.1); border-left-color: #fbbf24; }
+.meta-size .meta-k { color: #fcd34d; }
+.meta-audio { background: rgba(167,139,250,0.1); border-left-color: #a78bfa; }
+.meta-audio .meta-k { color: #c4b5fd; }
+.meta-subs { background: rgba(249,168,212,0.09); border-left-color: #f9a8d4; }
+.meta-subs .meta-k { color: #fbcfe8; }
+.meta-plays { background: rgba(56,189,248,0.1); border-left-color: #38bdf8; }
+.meta-plays .meta-k { color: #7dd3fc; }
+.meta-player { background: rgba(253,186,116,0.1); border-left-color: #fdba74; }
+.meta-player .meta-k { color: #fdba74; }
+.play-note {
+    background: rgba(230,168,23,0.1); border: 1px solid rgba(230,168,23,0.28);
+    border-left: 3px solid #e6a817; border-radius: 8px; padding: 12px 14px;
+    font-size: 13px; line-height: 1.5; color: #e4d4b4;
+}
+.play-note-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #f0c14d; margin-bottom: 6px;
+}
+.play-note p + p { margin-top: 6px; color: #c9b896; }
+.play-note strong { color: #f5e6c8; font-weight: 600; }
+.play-note a {
+    color: #f0c14d; font-weight: 600; text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.play-note a:hover { color: #ffe08a; }
+.back-link {
+    align-self: flex-start; display: inline-flex; align-items: center; gap: 5px;
+    color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 500;
+}
 .back-link:hover { color: var(--accent); }
 @media(max-width:800px) {
     .view-grid { flex-direction: column; }
-    .info-panel { flex: 1; }
+    .meta-grid { grid-template-columns: repeat(2, 1fr); }
     .grid { grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 10px; }
 }
 </style>
