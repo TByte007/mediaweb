@@ -65,8 +65,6 @@ $useAvbridge = match ($playerPref) {
     'movi' => false,
     default => ($v['needs_fix'] === 1),
 };
-// Browsers can't HW-decode MPEG-4 Part 2; skip movi's "Try Software Decoding" prompt.
-$moviSw = !$useAvbridge && str_contains(strtoupper($v['video_format']), 'MPEG-4');
 $avbridgeBase = MW_BASE_URL . 'vendor/avbridge/';
 $avbridgeLibav = $avbridgeBase . 'vendor/libav';
 $videoUrlEsc = htmlspecialchars($videoUrl);
@@ -83,7 +81,8 @@ require __DIR__ . '/layout/header.php';
       <a slot="top-left" href="<?= MW_BASE_URL ?>" style="color:#fff;text-decoration:none;font-size:13px">&#8592; Library</a>
     </avbridge-player>
 <?php else: ?>
-    <movi-player id="player" src="<?= $videoUrlEsc ?>" controls<?= $moviSw ? ' sw' : '' ?>></movi-player>
+    <!-- sw="auto": HW first, silent software fallback (no "Try Software Decoding" prompt) -->
+    <movi-player id="player" src="<?= $videoUrlEsc ?>" controls sw="auto"></movi-player>
 <?php endif; ?>
 </div>
 <?php
