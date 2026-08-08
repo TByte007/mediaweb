@@ -126,7 +126,7 @@ $subsLabel = $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's
         </div>
         <div class="meta meta-player">
             <span class="meta-k">Player</span>
-            <span class="meta-v"><?= $useAvbridge ? 'avbridge' : 'movi' ?><?php if ($playerNote !== ''): ?><span class="meta-note"><?= htmlspecialchars($playerNote) ?></span><?php endif; ?></span>
+            <span class="meta-v"><?= $useAvbridge ? 'avbridge' : 'movi' ?><?php if ($playerNote !== ''): ?><span class="meta-note"><?= htmlspecialchars($playerNote) ?></span><?php endif; ?><?php if (!$useAvbridge): ?><span class="meta-note" id="decoder-note" hidden></span><?php endif; ?></span>
         </div>
     </div>
 <?php if ($v['needs_fix']): ?>
@@ -186,6 +186,24 @@ player.addEventListener('click', start);
 player.addEventListener('pointerdown', start);
 <?php if ($useAvbridge): ?>
 player.addEventListener('error', (e) => console.warn('[avbridge] error', e));
+<?php else: ?>
+const decoderNote = document.getElementById('decoder-note');
+function markSoftwareDecode() {
+    if (!decoderNote || !decoderNote.hidden) return;
+    const sw = player.player?.isSoftwareDecoding?.() === true
+        || player.sw === true
+        || player.getAttribute('sw') === '';
+    if (!sw) return;
+    decoderNote.hidden = false;
+    decoderNote.textContent = 'software';
+    swObs.disconnect();
+    clearInterval(swPoll);
+}
+const swObs = new MutationObserver(markSoftwareDecode);
+swObs.observe(player, { attributes: true, attributeFilter: ['sw'] });
+const swPoll = setInterval(markSoftwareDecode, 500);
+player.addEventListener('playing', markSoftwareDecode);
+setTimeout(() => clearInterval(swPoll), 120000);
 <?php endif; ?>
 </script>
 
