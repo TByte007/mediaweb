@@ -85,6 +85,10 @@ if (!function_exists('pageUrl')) {
     {
         global $basePath;
         $params = array_merge($_GET, $extra);
+        foreach ($params as $k => $v) {
+            if ($v === null || $v === '') unset($params[$k]);
+        }
+        if ($params === []) return $basePath;
         return $basePath . '?' . http_build_query($params);
     }
 }

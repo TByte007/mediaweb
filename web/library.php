@@ -9,6 +9,15 @@ $dbFile = MW_DB;
 $basePath = MW_BASE_URL;
 
 $search = trim($_GET['q'] ?? '');
+$len = $_GET['len'] ?? '';
+$lenFilters = [
+    'movie'  => 'duration_secs >= 3600',
+    'series' => 'duration_secs >= 600 AND duration_secs < 3600',
+    'clip'   => 'duration_secs > 0 AND duration_secs < 600',
+];
+if (!isset($lenFilters[$len])) $len = '';
+$showLenFilters = true;
+
 $limit = 36;
 $offset = (int)(($_GET['page'] ?? 1) - 1) * $limit;
 
@@ -31,6 +40,7 @@ if ($search) {
     $where[] = "filename LIKE :q OR title LIKE :q";
     $params['q'] = "%$search%";
 }
+if ($len !== '') $where[] = $lenFilters[$len];
 
 $whereClause = "WHERE " . implode(" AND ", $where);
 $orderBy = $search ? "ORDER BY title ASC" : "ORDER BY playback_count DESC, id DESC";

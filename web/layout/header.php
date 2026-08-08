@@ -64,6 +64,24 @@ body {
 .player-pref:focus { border-color: var(--accent); }
 .player-pref option { color: #1a1a1a; background: #fff; }
 .stats { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.len-filters {
+    display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+    border-radius: 999px; border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.03); flex: 0 0 auto;
+}
+.len-btn {
+    display: inline-flex; align-items: baseline; gap: 5px;
+    padding: 6px 12px; border-radius: 999px; text-decoration: none;
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    transition: color 0.15s, background 0.15s;
+}
+.len-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+.len-btn.active { color: #fff; background: var(--accent); }
+.len-btn .len-hint {
+    font-size: 10px; font-weight: 500; opacity: 0.55;
+    font-variant-numeric: tabular-nums;
+}
+.len-btn.active .len-hint { opacity: 0.8; }
 main { max-width: 1400px; margin: 0 auto; padding: 24px 24px 60px; }
 .info { margin-bottom: 14px; font-size: 12px; color: var(--muted); }
 .info strong { color: var(--accent); }
@@ -215,7 +233,29 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
             <span class="search-icon">&#128269;</span>
             <input class="search-input" id="search-input" type="search" name="q" placeholder="Search videos..." value="<?= htmlspecialchars($search ?? '') ?>" autocomplete="off">
             <button type="button" class="search-clear" id="search-clear" aria-label="Clear search">&times;</button>
+            <?php if (!empty($len)): ?>
+            <input type="hidden" name="len" value="<?= htmlspecialchars($len) ?>">
+            <?php endif; ?>
         </form>
+        <?php if (!empty($showLenFilters)): ?>
+        <nav class="len-filters" aria-label="Filter by length">
+            <?php
+            $lenOpts = [
+                ''       => ['All', ''],
+                'movie'  => ['Movies', '≥1h'],
+                'series' => ['Series', '10–60m'],
+                'clip'   => ['Clips', '<10m'],
+            ];
+            foreach ($lenOpts as $key => [$label, $hint]):
+                $active = ($len ?? '') === $key ? ' active' : '';
+                $href = pageUrl(['len' => $key === '' ? null : $key, 'page' => null]);
+                $hintHtml = $hint !== '' ? ' <span class="len-hint">' . htmlspecialchars($hint) . '</span>' : '';
+                $titleAttr = $hint !== '' ? ' title="' . htmlspecialchars($hint) . '"' : '';
+            ?>
+            <a class="len-btn<?= $active ?>" href="<?= htmlspecialchars($href) ?>"<?= $titleAttr ?>><?= $label ?><?= $hintHtml ?></a>
+            <?php endforeach; ?>
+        </nav>
+        <?php endif; ?>
         <select class="player-pref" id="player-pref" title="Player override" aria-label="Player">
             <option value="auto">Player: auto</option>
             <option value="movi">Player: movi</option>
@@ -254,8 +294,12 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
         clear.addEventListener('click', () => {
             input.value = '';
             syncClear();
-            if (new URLSearchParams(location.search).has('q')) location.href = base;
-            else input.focus();
+            const params = new URLSearchParams(location.search);
+            if (!params.has('q')) { input.focus(); return; }
+            params.delete('q');
+            params.delete('page');
+            const qs = params.toString();
+            location.href = qs ? base + '?' + qs : base;
         });
     }
     document.addEventListener('click', (e) => {
