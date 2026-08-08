@@ -169,6 +169,29 @@ function triggerPlayCount() {
 player.addEventListener('playing', triggerPlayCount, { once: true });
 player.addEventListener('play', triggerPlayCount, { once: true });
 
+// Keep tablet/phone screen on while playing (Screen Wake Lock API).
+let wakeLock = null;
+let wantWake = false;
+async function acquireWake() {
+    if (!wantWake || wakeLock || !navigator.wakeLock?.request) return;
+    try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (_) {}
+}
+function releaseWake() {
+    wantWake = false;
+    wakeLock?.release().catch(() => {});
+    wakeLock = null;
+}
+player.addEventListener('playing', () => { wantWake = true; acquireWake(); });
+player.addEventListener('play', () => { wantWake = true; acquireWake(); });
+player.addEventListener('pause', releaseWake);
+player.addEventListener('ended', releaseWake);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && wantWake) acquireWake();
+});
+
 function start(e) {
 <?php if ($useAvbridge): ?>
     if (AvbridgePlayerElement.isPlayerChromeEvent(e)) return;
