@@ -296,21 +296,35 @@ if ($llmTitles) {
     while ($row = $rv->fetchArray(SQLITE3_ASSOC)) {
         $fn = (string)$row['filename'];
         $fp = (string)$row['filepath'];
+        $season = $row['season'] !== null ? (int)$row['season'] : null;
+        $episode = $row['episode'] !== null ? (int)$row['episode'] : null;
         $heur = episodePrettyTitle(
-            $fn, $row['title'], $fp,
-            $row['season'] !== null ? (int)$row['season'] : null,
-            $row['episode'] !== null ? (int)$row['episode'] : null,
-            $row['episode_title']
+            $fn, $row['title'], $fp, $season, $episode, $row['episode_title']
         );
         $rel = mediaRelPath($fp) ?? $fp;
+        $show = !empty($row['series_title']) ? (string)$row['series_title'] : '-';
+        $code = ($season !== null && $episode !== null)
+            ? sprintf('S%02dE%02d', $season, $episode) : null;
+        // Heuristic is only SxxExx → no episode title words; don't ask the LLM
+        $codeOnly = $code !== null && preg_match('/^S\d{2}E\d{2}$/i', trim($heur));
+
+        if ($codeOnly && $show !== '-') {
+            $out = "$show $code";
+            echo "video #{$row['id']} | $show | $heur | $rel  →  $out (no-llm)\n";
+            $stmtName->reset();
+            $stmtName->bindValue(1, $out);
+            $stmtName->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
+            $stmtName->execute();
+            $videoNamed++;
+            continue;
+        }
+
         $user = "Path: $rel\nHeuristic: $heur";
-        if (!empty($row['series_title'])) $user .= "\nShow: {$row['series_title']}";
-        $show = !empty($row['series_title']) ? $row['series_title'] : '-';
+        if ($show !== '-') $user .= "\nShow: $show";
         $out = mwLlmChat($sysVideo, $user);
         if ($out !== null && strcasecmp($out, 'SKIP') !== 0 && !$titleGrounded($out, $user)) {
-            // Drop invented words; fall back to Show SxxExx when we can
-            if ($row['series_title'] && $row['season'] !== null && $row['episode'] !== null) {
-                $out = sprintf('%s S%02dE%02d', $row['series_title'], (int)$row['season'], (int)$row['episode']);
+            if ($show !== '-' && $code !== null) {
+                $out = "$show $code";
             } else {
                 echo "video #{$row['id']} | $show | $heur | $rel  →  (ungrounded)\n";
                 $videoFailed++;
@@ -323,6 +337,11 @@ if ($llmTitles) {
                 $showOnly = trim(preg_replace('/:\s*(ep|e|episode)\s*\d+\s*$/i', '', $m[1]) ?? $m[1]);
                 $out = sprintf('%s S%02dE%02d', $showOnly, (int)$m[2], (int)$m[3]);
             }
+        }
+        // Series replies must keep the episode code
+        if ($out !== null && $code !== null && $show !== '-'
+            && !preg_match('/S\d{1,2}E\d{1,2}\s*$/i', $out)) {
+            $out = rtrim($out) . " $code";
         }
         $recv = $out === null ? '(fail)' : $out;
         echo "video #{$row['id']} | $show | $heur | $rel  →  $recv\n";
