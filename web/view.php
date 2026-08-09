@@ -16,25 +16,32 @@ $row = $db->querySingle("SELECT id, filename, filepath, video_format, width, hei
         filesize_bytes, audio_tracks, subtitle_tracks, title, playback_count, needs_fix, is_deleted,
         series_id, season, episode, episode_title
         FROM videos WHERE id = $id", true);
-$seriesNav = null;
-if ($row && !empty($row['series_id'])) {
-    $seriesNav = $db->querySingle(
-        'SELECT id, title FROM series WHERE id = ' . (int)$row['series_id'],
-        true
-    );
-}
-$db->close();
 
-if (!$row) { http_response_code(404); die('<h1>Not found</h1>'); }
-
-$isDeleted = isset($row['is_deleted']) && $row['is_deleted'] == 1;
-if ($isDeleted) {
+if (!$row) { $db->close(); http_response_code(404); die('<h1>Not found</h1>'); }
+if (!empty($row['is_deleted'])) {
+    $db->close();
     http_response_code(410);
     die('<h1>Deleted</h1><p>This video was removed from storage but is kept in the database.</p>');
 }
 
-$seasonNum = isset($row['season']) && $row['season'] !== null ? (int)$row['season'] : null;
-$episodeNum = isset($row['episode']) && $row['episode'] !== null ? (int)$row['episode'] : null;
+$seasonNum = $row['season'] !== null ? (int)$row['season'] : null;
+$episodeNum = $row['episode'] !== null ? (int)$row['episode'] : null;
+$seriesNav = null;
+$prevId = null;
+$nextId = null;
+if (!empty($row['series_id'])) {
+    $seriesNav = $db->querySingle(
+        'SELECT id, title FROM series WHERE id = ' . (int)$row['series_id'],
+        true
+    );
+    if ($seriesNav && $seasonNum !== null && $episodeNum !== null) {
+        $sid = (int)$row['series_id'];
+        $prevId = neighborEpisodeId($db, $sid, $seasonNum, $episodeNum, false);
+        $nextId = neighborEpisodeId($db, $sid, $seasonNum, $episodeNum, true);
+    }
+}
+$db->close();
+
 $v = [
     'id'               => (int)$row['id'],
     'filename'         => (string)$row['filename'],
@@ -55,7 +62,7 @@ $v = [
         $row['episode_title'] ?? null
     ),
     'playback_count'   => (int)$row['playback_count'],
-    'needs_fix'        => isset($row['needs_fix']) ? (int)$row['needs_fix'] : 0,
+    'needs_fix'        => (int)($row['needs_fix'] ?? 0),
 ];
 $filepath   = $row['filepath'];
 $rawName    = basename((string)$row['filename']);
@@ -87,6 +94,11 @@ $avbridgeBase = MW_BASE_URL . 'vendor/avbridge/';
 $avbridgeLibav = $avbridgeBase . 'vendor/libav';
 $videoUrlEsc = htmlspecialchars($videoUrl);
 $search = '';
+$seriesLabel = $seriesNav
+    ? ((string)$seriesNav['title'] . ($seasonNum !== null ? ' · Season ' . $seasonNum : ''))
+    : '';
+$playerQs = $playerPref !== 'auto' ? '&player=' . rawurlencode($playerPref) : '';
+$viewHref = fn(int $vid): string => MW_BASE_URL . '?view=' . $vid . $playerQs;
 
 require __DIR__ . '/layout/header.php';
 ?>
@@ -110,9 +122,27 @@ $subsLabel = $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's
 ?>
 <div class="info-panel">
     <h1 class="video-title">
+<?php if ($seriesNav): ?>
+        <span class="video-title-sub"><?= htmlspecialchars($seriesLabel) ?></span>
+<?php endif; ?>
         <span class="video-title-pretty"><?= htmlspecialchars($v['title']) ?></span>
-        <span class="video-title-file">(<?= htmlspecialchars($rawName) ?>)</span>
+<?php if (!$seriesNav): ?>
+        <span class="video-title-sub">(<?= htmlspecialchars($rawName) ?>)</span>
+<?php endif; ?>
     </h1>
+    <nav class="view-nav" aria-label="Episode navigation">
+<?php if ($seriesNav): ?>
+        <a class="view-nav-btn" href="<?= MW_BASE_URL ?>?mode=series&sid=<?= (int)$seriesNav['id'] ?><?= $seasonNum !== null ? '&season=' . $seasonNum : '' ?>">&#8592; <?= htmlspecialchars($seriesLabel) ?></a>
+        <?= $prevId !== null
+            ? '<a class="view-nav-btn" href="' . htmlspecialchars($viewHref($prevId)) . '">&#8592; Previous</a>'
+            : '<span class="view-nav-btn is-disabled" aria-disabled="true">&#8592; Previous</span>' ?>
+        <?= $nextId !== null
+            ? '<a class="view-nav-btn" href="' . htmlspecialchars($viewHref($nextId)) . '">Next &#8594;</a>'
+            : '<span class="view-nav-btn is-disabled" aria-disabled="true">Next &#8594;</span>' ?>
+<?php else: ?>
+        <a class="view-nav-btn" href="<?= MW_BASE_URL ?>">&#8592; Library</a>
+<?php endif; ?>
+    </nav>
     <div class="meta-grid">
         <div class="meta meta-codec">
             <span class="meta-k">Codec</span>
@@ -155,11 +185,6 @@ $subsLabel = $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's
             closer to how VLC invents timestamps, but CPU-heavy and not guaranteed smooth.</p>
         <p>If it still jitters, <a href="<?= $videoUrlEsc ?>" download>download the file</a> and open it in <strong>VLC</strong>.</p>
     </div>
-<?php endif; ?>
-<?php if ($seriesNav): ?>
-    <a class="back-link" href="<?= MW_BASE_URL ?>?mode=series&sid=<?= (int)$seriesNav['id'] ?><?= $seasonNum !== null ? '&season=' . $seasonNum : '' ?>">&#8592; <?= htmlspecialchars((string)$seriesNav['title']) ?><?= $seasonNum !== null ? ' · Season ' . $seasonNum : '' ?></a>
-<?php else: ?>
-    <a class="back-link" href="<?= MW_BASE_URL ?>">&#8592; Back to library</a>
 <?php endif; ?>
 </div>
 </div>

@@ -41756,10 +41756,8 @@ var VideoRenderer = class {
   subtitleTrack = null;
   /**
    * Calibration offset (microseconds) between video PTS and audio clock.
-   * Video PTS and AudioContext.currentTime can drift ~0.1% relative to
-   * each other (different clock domains). Over 45 minutes that's 2.6s.
-   * We measure the offset on the first painted frame and update it
-   * periodically so the PTS comparison stays calibrated.
+   * Measured once on first paint. Periodic resnap-to-queue-head was removed
+   * (MediaWeb): it locked in decode lag as "truth" so video drifted behind audio.
    */
   ptsCalibrationUs = 0;
   ptsCalibrated = false;
@@ -41909,15 +41907,6 @@ var VideoRenderer = class {
         if (isDebug()) {
           console.log(
             `[avbridge:renderer] CALIB-FIRST audioAnchor=${(anchorUs / 1e3).toFixed(1)}ms prerolledPTS=${this.hasLastPaintedPts ? (this.lastPaintedPtsUs / 1e3).toFixed(1) : "n/a"}ms queueHeadPTS=${(headTs / 1e3).toFixed(1)}ms rawAudioNow=${(rawAudioNowUs / 1e3).toFixed(1)}ms \u2192 calib=${(this.ptsCalibrationUs / 1e3).toFixed(1)}ms`
-          );
-        }
-      } else if (wallNow2 - this.lastCalibrationWall > 1e4) {
-        const oldCalib = this.ptsCalibrationUs;
-        this.ptsCalibrationUs = headTs - rawAudioNowUs;
-        this.lastCalibrationWall = wallNow2;
-        if (isDebug()) {
-          console.log(
-            `[avbridge:renderer] CALIB-RESNAP headPTS=${(headTs / 1e3).toFixed(1)}ms rawAudioNow=${(rawAudioNowUs / 1e3).toFixed(1)}ms calib ${(oldCalib / 1e3).toFixed(1)}ms \u2192 ${(this.ptsCalibrationUs / 1e3).toFixed(1)}ms (\u0394=${((this.ptsCalibrationUs - oldCalib) / 1e3).toFixed(1)}ms after 10s)`
           );
         }
       }

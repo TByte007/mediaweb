@@ -100,6 +100,7 @@ Rebuild player bundle (Node once; not needed on TiTaN at runtime):
 ```bash
 cd tmp/avbridge-player-build   # or fresh: npm i avbridge@2.13.0 esbuild
 node ../../web/vendor/avbridge/patches/apply-firefox-swscale.mjs
+node ../../web/vendor/avbridge/patches/disable-calib-resnap.mjs
 npx esbuild node_modules/avbridge/dist/player.js --bundle --format=esm --platform=browser \
   --outfile=../../web/vendor/avbridge/dist/player-browser.js
 ```

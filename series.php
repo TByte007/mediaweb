@@ -145,6 +145,25 @@ function episodePrettyTitle(
     return ($episodeTitle !== null && $episodeTitle !== '') ? "$code · $episodeTitle" : $code;
 }
 
+/** Adjacent episode id in binge order (season, episode). */
+function neighborEpisodeId(\SQLite3 $db, int $seriesId, int $season, int $episode, bool $next): ?int
+{
+    $op = $next ? '>' : '<';
+    $ord = $next ? 'ASC' : 'DESC';
+    $st = $db->prepare(
+        "SELECT id FROM videos
+         WHERE is_deleted = 0 AND series_id = :sid AND season IS NOT NULL AND episode IS NOT NULL
+           AND (season $op :s OR (season = :s AND episode $op :e))
+         ORDER BY season $ord, episode $ord
+         LIMIT 1"
+    );
+    $st->bindValue(':sid', $seriesId, SQLITE3_INTEGER);
+    $st->bindValue(':s', $season, SQLITE3_INTEGER);
+    $st->bindValue(':e', $episode, SQLITE3_INTEGER);
+    $row = $st->execute()->fetchArray(2);
+    return $row ? (int)$row[0] : null;
+}
+
 /**
  * Re-parse living videos, qualify show roots, upsert series, set series_id.
  *

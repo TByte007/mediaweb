@@ -141,10 +141,10 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
 }
 .info-panel h1, .video-title {
     font-size: 22px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em;
+    display: flex; flex-direction: column; gap: 4px;
 }
-.video-title-file {
-    margin-left: 0.35em; font-size: 13px; font-weight: 500; letter-spacing: 0;
-    color: var(--muted);
+.video-title-sub {
+    font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--muted);
 }
 .meta-grid {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
@@ -200,8 +200,28 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
     text-underline-offset: 2px;
 }
 .play-note a:hover { color: #ffe08a; }
+.view-nav {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch;
+}
+.view-nav-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 12px 18px; border-radius: 10px;
+    border: 1px solid rgba(94,114,228,0.45);
+    background: rgba(94,114,228,0.18);
+    color: #e4e9f2; text-decoration: none;
+    font-size: 15px; font-weight: 600; line-height: 1.25;
+}
+.view-nav-btn:hover {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+}
+.view-nav-btn.is-disabled,
+.view-nav-btn.is-disabled:hover {
+    opacity: 0.4; cursor: not-allowed;
+    background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.08);
+    color: var(--muted); pointer-events: none;
+}
 .back-link {
-    align-self: flex-start; display: inline-flex; align-items: center; gap: 5px;
+    display: inline-flex; align-items: center; gap: 5px;
     color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 500;
 }
 .back-link:hover { color: var(--accent); }
