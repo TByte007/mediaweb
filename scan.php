@@ -18,16 +18,22 @@ declare(strict_types=1);
 require __DIR__ . '/config.php';
 require __DIR__ . '/web/layout/helpers.php';
 require __DIR__ . '/series.php';
+require __DIR__ . '/llm.php';
 
 $scanDirs = array_map(fn($d) => rtrim($d['fs'], '/'), MW_MEDIA_DIRS);
-$dbFile      = MW_DB;
+$dbFile         = MW_DB;
 $verbose        = false;
 $scanOnly       = false;
 $forceRescan    = false;
 $seriesBackfill = false;
+$llmTitles      = false;
+$forceLlm       = false;
 $dirOverride    = false;
 
-$opts = getopt('', ['dir:', 'db:', 'verbose', 'scan-only', 'force-rescan', 'series-backfill', 'help']);
+$opts = getopt('', [
+    'dir:', 'db:', 'verbose', 'scan-only', 'force-rescan', 'series-backfill',
+    'llm-titles', 'force', 'help',
+]);
 
 if (isset($opts['help'])) {
     $dirList = implode("\n", array_map(fn($d) => "    - {$d['fs']}  ({$d['url']})", MW_MEDIA_DIRS));
@@ -41,6 +47,8 @@ Options:
     --scan-only          Refresh needs_fix (PTS probe + MPEG-4/Xvid in any container)
     --force-rescan       Re-run metadata extract on files already in the database
     --series-backfill    Re-link series/seasons/episodes from paths only (no tree walk)
+    --llm-titles         Polish series.title + videos.name via llama-server (MW_LLM_URL)
+    --force              With --llm-titles: overwrite existing names (all living videos)
     --help               Show this help
 
 Scans for: mkv, mp4, avi, mov, webm, wmv, flv, m4v
@@ -68,6 +76,11 @@ Behavior:
         paths into the series table (see series.php). Use --series-backfill to
         re-run only that pass (no MediaInfo / no filesystem walk).
 
+    --llm-titles:
+        Requires MW_LLM_URL (llama-server). Updates series.title and fills videos.name
+        for messy paths only (or all with --force). Heuristics used if LLM is off/down.
+        Thinking disabled. Run after --series-backfill when polishing a library.
+
 USAGE;
     echo str_replace('MW_DB', MW_DB, "Default DB: MW_DB\n");
     exit(0);
@@ -78,8 +91,11 @@ if (isset($opts['verbose']))          $verbose        = true;
 if (isset($opts['scan-only']))        $scanOnly       = true;
 if (isset($opts['force-rescan']))     $forceRescan    = true;
 if (isset($opts['series-backfill']))  $seriesBackfill = true;
+if (isset($opts['llm-titles']))       $llmTitles      = true;
+if (isset($opts['force']))            $forceLlm       = true;
 
-if (!$seriesBackfill) {
+$skipMediaTools = $seriesBackfill || $llmTitles;
+if (!$skipMediaTools) {
     if (!file_exists(MW_FFMPEG)) {
         echo "Error: ffmpeg not found at " . MW_FFMPEG . "\n";
         exit(1);
@@ -140,6 +156,7 @@ CREATE TABLE IF NOT EXISTS videos (
     season          INTEGER,
     episode         INTEGER,
     episode_title   TEXT,
+    name            TEXT,
     scanned_at      DATETIME NOT NULL DEFAULT (datetime('now')),
     updated_at      DATETIME NOT NULL DEFAULT (datetime('now'))
 );
@@ -171,6 +188,7 @@ $hasSeriesId = false;
 $hasSeason = false;
 $hasEpisode = false;
 $hasEpisodeTitle = false;
+$hasName = false;
 while ($col = $result->fetchArray(2)) {
     if (!empty($col) && isset($col[1])) {
         if ($col[1] === 'needs_fix') $hasNeedsFix = true;
@@ -179,6 +197,7 @@ while ($col = $result->fetchArray(2)) {
         if ($col[1] === 'season') $hasSeason = true;
         if ($col[1] === 'episode') $hasEpisode = true;
         if ($col[1] === 'episode_title') $hasEpisodeTitle = true;
+        if ($col[1] === 'name') $hasName = true;
     }
 }
 if (!$hasNeedsFix) $db->exec('ALTER TABLE videos ADD COLUMN needs_fix INTEGER DEFAULT 0;');
@@ -187,6 +206,7 @@ if (!$hasSeriesId) $db->exec('ALTER TABLE videos ADD COLUMN series_id INTEGER;')
 if (!$hasSeason) $db->exec('ALTER TABLE videos ADD COLUMN season INTEGER;');
 if (!$hasEpisode) $db->exec('ALTER TABLE videos ADD COLUMN episode INTEGER;');
 if (!$hasEpisodeTitle) $db->exec('ALTER TABLE videos ADD COLUMN episode_title TEXT;');
+if (!$hasName) $db->exec('ALTER TABLE videos ADD COLUMN name TEXT;');
 
 if ($seriesBackfill) {
     $db->exec('BEGIN;');
@@ -196,6 +216,98 @@ if ($seriesBackfill) {
     echo "  Series:   {$stats['series']} shows\n";
     echo "  Linked:   {$stats['linked']} episodes\n";
     echo "  Database: $dbFile\n";
+    $db->close();
+    exit(0);
+}
+
+if ($llmTitles) {
+    if (!mwLlmEnabled()) {
+        echo "LLM titles skipped: MW_LLM_URL is empty (heuristics only).\n";
+        $db->close();
+        exit(0);
+    }
+    if (!mwLlmAvailable()) {
+        echo "LLM titles skipped: llama-server not reachable at " . MW_LLM_URL . "\n";
+        $db->close();
+        exit(0);
+    }
+
+    $sysSeries = 'You name TV shows from torrent/release folder names. '
+        . 'Reply with ONLY the canonical show title on one line. '
+        . 'Expand codes like DS9, SGA, SGU, TNG. No year, quality, codec, or group tags.';
+    $sysVideo = 'You name a video file for a media library. '
+        . 'Reply with ONLY a short human title on one line. '
+        . 'For episodes: episode name only (no SxxExx, no show name). '
+        . 'For movies: the movie title. No quality/codec/group tags.';
+
+    $seriesUpdated = 0;
+    $seriesFailed = 0;
+    $rs = $db->query('SELECT id, root_key, title FROM series ORDER BY id');
+    $stmtSer = $db->prepare('UPDATE series SET title = ?, updated_at = datetime(\'now\') WHERE id = ?');
+    while ($row = $rs->fetchArray(SQLITE3_ASSOC)) {
+        $top = basename(str_replace('\\', '/', (string)$row['root_key']));
+        $out = mwLlmChat($sysSeries, "Folder: $top\nCurrent title: {$row['title']}");
+        if ($out === null) {
+            $seriesFailed++;
+            if ($verbose) echo "  [FAIL] series #{$row['id']} {$row['title']}\n";
+            continue;
+        }
+        $stmtSer->reset();
+        $stmtSer->bindValue(1, $out);
+        $stmtSer->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
+        $stmtSer->execute();
+        $seriesUpdated++;
+        if ($verbose) echo "  [OK]   series #{$row['id']} → $out\n";
+    }
+
+    $videoNamed = 0;
+    $videoSkipped = 0;
+    $videoFailed = 0;
+    $sql = 'SELECT v.id, v.filepath, v.filename, v.title, v.series_id, v.season, v.episode,
+                   v.episode_title, s.title AS series_title
+            FROM videos v
+            LEFT JOIN series s ON s.id = v.series_id
+            WHERE v.is_deleted = 0';
+    if (!$forceLlm) $sql .= ' AND (v.name IS NULL OR v.name = \'\')';
+    $sql .= ' ORDER BY v.id';
+    $rv = $db->query($sql);
+    $stmtName = $db->prepare('UPDATE videos SET name = ?, updated_at = datetime(\'now\') WHERE id = ?');
+    while ($row = $rv->fetchArray(SQLITE3_ASSOC)) {
+        $fn = (string)$row['filename'];
+        $fp = (string)$row['filepath'];
+        $heur = episodePrettyTitle(
+            $fn, $row['title'], $fp,
+            $row['season'] !== null ? (int)$row['season'] : null,
+            $row['episode'] !== null ? (int)$row['episode'] : null,
+            $row['episode_title']
+        );
+        if (!$forceLlm
+            && !filenameIsCryptic($fn)
+            && !titleLooksReleasey($heur)
+            && !($row['series_id'] && ($row['episode_title'] === null || $row['episode_title'] === ''))) {
+            $videoSkipped++;
+            continue;
+        }
+        $user = 'Path: ' . (mediaRelPath($fp) ?? $fp) . "\nHeuristic: $heur";
+        if (!empty($row['series_title'])) $user .= "\nShow: {$row['series_title']}";
+        $out = mwLlmChat($sysVideo, $user);
+        if ($out === null) {
+            $videoFailed++;
+            if ($verbose) echo "  [FAIL] video #{$row['id']} $fn\n";
+            continue;
+        }
+        $stmtName->reset();
+        $stmtName->bindValue(1, $out);
+        $stmtName->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
+        $stmtName->execute();
+        $videoNamed++;
+        if ($verbose) echo "  [OK]   video #{$row['id']} → $out\n";
+    }
+
+    echo "LLM titles complete.\n";
+    echo "  Series updated: $seriesUpdated (failed: $seriesFailed)\n";
+    echo "  Videos named:   $videoNamed (skipped: $videoSkipped, failed: $videoFailed)\n";
+    echo "  Database:       $dbFile\n";
     $db->close();
     exit(0);
 }

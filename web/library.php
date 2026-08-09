@@ -37,7 +37,7 @@ $where = ["is_deleted = 0"];
 $params = [];
 
 if ($search) {
-    $where[] = "filename LIKE :q OR title LIKE :q OR directory LIKE :q";
+    $where[] = "filename LIKE :q OR title LIKE :q OR directory LIKE :q OR name LIKE :q";
     $params['q'] = "%$search%";
 }
 if ($len !== '') $where[] = $lenFilters[$len][0];
@@ -46,7 +46,7 @@ $whereClause = "WHERE " . implode(" AND ", $where);
 $orderBy = $search ? "ORDER BY title ASC" : "ORDER BY playback_count DESC, id DESC";
 
 $sql = "SELECT id, filename, filepath, video_format, width, height, duration_secs,
-               filesize_bytes, audio_tracks, subtitle_tracks, title, playback_count, needs_fix
+               filesize_bytes, audio_tracks, subtitle_tracks, title, playback_count, needs_fix, name
         FROM videos $whereClause $orderBy
         LIMIT :limit OFFSET :offset";
 
@@ -69,7 +69,7 @@ while ($row = $result->fetchArray(2)) {
         'filesize_bytes'   => (int)($row[7] ?? 0),
         'audio_tracks'     => (int)($row[8] ?? 0),
         'subtitle_tracks'  => (int)($row[9] ?? 0),
-        'title'            => videoPrettyTitle((string)$row[1], $row[10] ?? null, (string)$row[2]),
+        'title'            => videoPrettyTitle((string)$row[1], $row[10] ?? null, (string)$row[2], $row[13] ?? null),
         'playback_count'   => (int)($row[11] ?? 0),
         'needs_fix'        => (int)($row[12] ?? 0),
     ];

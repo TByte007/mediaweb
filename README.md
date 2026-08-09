@@ -40,6 +40,8 @@ php scan.php --verbose                 # incremental scan
 php scan.php --force-rescan            # re-extract metadata for known files
 php scan.php --scan-only --verbose     # refresh needs_fix (PTS probe)
 php scan.php --series-backfill         # re-link series/seasons/episodes only
+php scan.php --llm-titles              # polish series.title + videos.name (needs MW_LLM_*)
+php scan.php --llm-titles --force      # overwrite existing LLM display names
 
 php list.php --format=HEVC
 php list.php --name="search" --limit=20
@@ -59,8 +61,13 @@ Shared constants live in `config.php` (gitignored). Start from `config.example.p
 | `MW_BASE_URL` | Web app URL prefix (e.g. `/mweb/`) |
 | `MW_FFMPEG` / `MW_FFPROBE` | Absolute binary paths |
 | `MW_MEDIA_DIRS` | Media roots: `[ 'fs' => path, 'url' => apache_prefix ]` |
+| `MW_LLM_URL` | Optional llama-server base URL for `--llm-titles` (empty disables) |
+| `MW_LLM_MODEL` | Model id (required on multi-model routers) |
+| `MW_LLM_TIMEOUT` | Chat request timeout seconds (default 60) |
 
 Each storage entry is independent: `[ 'fs' => '/path/on/disk', 'url' => '/apache_prefix/' ]`. Only the URL prefixes need to be public.
+
+Display titles: MediaInfo stays in `videos.title`; optional LLM/heuristic display name is `videos.name` (UI prefers it). Series show title is `series.title`.
 
 ## Browser playback and `needs_fix`
 

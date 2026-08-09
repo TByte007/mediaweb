@@ -140,7 +140,19 @@ function prettifyFilename(string $filename): string
         }
         // Already-acronym token (SG, NASA) — don't title-case to Sg
         if (preg_match('/^[A-Z]{2,}$/', $w)) continue;
+        // Letter-only show codes (digit codes like DS9 handled below)
+        static $showCodes = ['tng' => 1, 'tos' => 1, 'voy' => 1, 'ent' => 1];
         $lower = strtolower($w);
+        if (isset($showCodes[$lower])) {
+            $w = strtoupper($w);
+            continue;
+        }
+        // DS9 / SGA / SGU / SG1
+        if (preg_match('/^[A-Za-z]{1,4}\d{1,3}$/i', $w)
+            && !preg_match('/^(s|e|ep)\d+$/i', $w)) {
+            $w = strtoupper($w);
+            continue;
+        }
         if ($i > 0 && isset($small[$lower])) {
             $w = $lower;
             continue;
@@ -154,9 +166,15 @@ function prettifyFilename(string $filename): string
 /**
  * Prefer a real metadata title; else parent folder when the filename is a
  * cryptic scene shortname; else prettify the filename.
+ * $displayName (videos.name) wins when set.
  */
-function videoPrettyTitle(string $filename, ?string $dbTitle = null, ?string $filepath = null): string
-{
+function videoPrettyTitle(
+    string $filename,
+    ?string $dbTitle = null,
+    ?string $filepath = null,
+    ?string $displayName = null
+): string {
+    if (($dn = trim((string)$displayName)) !== '') return $dn;
     $cleaned = cleanTitle($dbTitle);
     if ($cleaned !== '' && substr_count($cleaned, '.') < 2
         && !preg_match('/\.(mkv|avi|mp4|mov|wmv|m4v|webm)$/i', $cleaned)) {
@@ -167,6 +185,15 @@ function videoPrettyTitle(string $filename, ?string $dbTitle = null, ?string $fi
         if ($folder !== null) return prettifyFilename($folder);
     }
     return prettifyFilename($cleaned !== '' ? $cleaned : $filename);
+}
+
+/** Heuristic title still has quality/codec leftovers. */
+function titleLooksReleasey(string $pretty): bool
+{
+    return (bool)preg_match(
+        '/\b(x264|x265|hdtv|webrip|dvdrip|bluray|aac|hevc|480p|720p|1080p)\b/i',
+        $pretty
+    );
 }
 
 function pageUrl(array $extra = []): string

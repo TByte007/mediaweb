@@ -45,7 +45,7 @@ if ($sid > 0) {
         $where = 'is_deleted = 0 AND series_id = :sid AND season = :season';
         $params = ['sid' => $sid, 'season' => $season];
         if ($search !== '') {
-            $where .= ' AND (filename LIKE :q OR episode_title LIKE :q OR title LIKE :q)';
+            $where .= ' AND (filename LIKE :q OR episode_title LIKE :q OR title LIKE :q OR name LIKE :q)';
             $params['q'] = "%$search%";
         }
         $countStmt = $db->prepare("SELECT COUNT(*) FROM videos WHERE $where");
@@ -57,7 +57,7 @@ if ($sid > 0) {
         $stmt = $db->prepare(
             "SELECT id, filename, filepath, video_format, width, height, duration_secs,
                     filesize_bytes, audio_tracks, subtitle_tracks, title, playback_count, needs_fix,
-                    season, episode, episode_title
+                    season, episode, episode_title, name
              FROM videos WHERE $where
              ORDER BY episode ASC, filename ASC
              LIMIT :limit OFFSET :offset"
@@ -82,7 +82,8 @@ if ($sid > 0) {
                     (string)$row['filename'], $row['title'], (string)$row['filepath'],
                     $row['season'] !== null ? (int)$row['season'] : null,
                     $row['episode'] !== null ? (int)$row['episode'] : null,
-                    $row['episode_title']
+                    $row['episode_title'],
+                    $row['name']
                 ),
                 'playback_count' => (int)$row['playback_count'],
                 'needs_fix' => (int)$row['needs_fix'],

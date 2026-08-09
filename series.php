@@ -115,6 +115,18 @@ function showRootFromPath(string $filepath): ?array
     return null;
 }
 
+/** Path relative to media root, or null if outside. */
+function mediaRelPath(string $filepath): ?string
+{
+    $filepath = str_replace('\\', '/', $filepath);
+    foreach (MW_MEDIA_DIRS as $root) {
+        $fs = rtrim(str_replace('\\', '/', $root['fs']), '/');
+        if (str_starts_with($filepath, $fs . '/'))
+            return substr($filepath, strlen($fs) + 1);
+    }
+    return null;
+}
+
 function seriesShowTitle(string $topFolder): string
 {
     $s = preg_replace('/\[[^\]]*\]/', ' ', $topFolder);
@@ -137,12 +149,18 @@ function episodePrettyTitle(
     ?string $filepath,
     ?int $season,
     ?int $episode,
-    ?string $episodeTitle
+    ?string $episodeTitle,
+    ?string $displayName = null
 ): string {
-    if ($season === null || $episode === null)
-        return videoPrettyTitle($filename, $dbTitle, $filepath);
+    $epName = trim((string)$displayName);
+    if ($epName === '') $epName = trim((string)$episodeTitle);
+
+    if ($season === null || $episode === null) {
+        if ($epName !== '') return $epName;
+        return videoPrettyTitle($filename, $dbTitle, $filepath, $displayName);
+    }
     $code = sprintf('S%02dE%02d', $season, $episode);
-    return ($episodeTitle !== null && $episodeTitle !== '') ? "$code · $episodeTitle" : $code;
+    return $epName !== '' ? "$code · $epName" : $code;
 }
 
 /** Adjacent episode id in binge order (season, episode). */

@@ -20,6 +20,11 @@ if (!defined('MW_ROOT')) {
     define('MW_BASE_URL', '/mweb/');           // Apache maps /mweb/ -> web/
     define('MW_OWNER', 'YourNick');            // Shown above the MediaWeb logo (empty to hide)
 
+    // Optional llama-server for php scan.php --llm-titles (empty URL disables)
+    define('MW_LLM_URL', '');                  // e.g. http://10.0.0.6:8192
+    define('MW_LLM_MODEL', '');                // required on multi-model routers
+    define('MW_LLM_TIMEOUT', 60);
+
     // Media roots — each entry: [ 'fs' => filesystem path, 'url' => Apache URL prefix ]
     define('MW_MEDIA_DIRS', [
         [ 'fs' => '/path/to/library-videos', 'url' => '/videos_lib/' ],

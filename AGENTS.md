@@ -18,6 +18,8 @@ php scan.php --help
 php scan.php --force-rescan              # full metadata rescan (after major changes)
 php scan.php --scan-only --verbose       # PTS probe → needs_fix (browser warning)
 php scan.php --series-backfill           # re-link series/seasons/episodes only
+php scan.php --llm-titles                # polish series.title + videos.name (llama-server)
+php scan.php --llm-titles --force        # overwrite existing LLM names on all living rows
 php list.php --format=HEVC
 php list.php --name="search" --limit=20
 php list.php --count --format=AVC
@@ -28,12 +30,15 @@ php list.php --columns=filename,width,height,duration_secs,needs_fix
 
 **Series linking:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) parses season/episode from paths, upserts the `series` table, and sets `videos.series_id`. Use `php scan.php --series-backfill` to run only that pass (no tree walk / MediaInfo).
 
+**LLM display names:** Optional. Set `MW_LLM_URL` (and `MW_LLM_MODEL` on multi-model routers). `php scan.php --llm-titles` calls llama-server chat with thinking disabled, updates `series.title`, and fills `videos.name` for messy filenames only (`--force` = all living rows). Web UI prefers `videos.name` when set; never calls the LLM on page views. Empty/unreachable URL → heuristics only (`prettifyFilename`, including DS9/SGA-style acronyms). Typical order: `--series-backfill` then `--llm-titles`.
+
 ## Config (`config.php`)
 
 - `MW_DB`: database path (`./media.db`)
 - `MW_BASE_URL`: `/mweb/`
 - `MW_FFMPEG`: `/usr/local/bin/ffmpeg` (not on www's PATH)
 - `MW_MEDIA_DIRS`: media roots `[ ['fs' => filesystem_path, 'url' => apache_url_prefix], ... ]`
+- `MW_LLM_URL` / `MW_LLM_MODEL` / `MW_LLM_TIMEOUT`: optional llama-server for `--llm-titles` (empty URL disables)
 
   Example:
   ```php

@@ -14,7 +14,7 @@ $db = new SQLite3(MW_DB);
 $db->busyTimeout(5000);
 $row = $db->querySingle("SELECT id, filename, filepath, video_format, width, height, duration_secs,
         filesize_bytes, audio_tracks, subtitle_tracks, title, playback_count, needs_fix, is_deleted,
-        series_id, season, episode, episode_title
+        series_id, season, episode, episode_title, name
         FROM videos WHERE id = $id", true);
 
 if (!$row) { $db->close(); http_response_code(404); die('<h1>Not found</h1>'); }
@@ -59,7 +59,8 @@ $v = [
         (string)$row['filepath'],
         $seasonNum,
         $episodeNum,
-        $row['episode_title'] ?? null
+        $row['episode_title'] ?? null,
+        $row['name'] ?? null
     ),
     'playback_count'   => (int)$row['playback_count'],
     'needs_fix'        => (int)($row['needs_fix'] ?? 0),
