@@ -31,7 +31,8 @@ function parseSeasonFromDirName(string $base): ?int
 function cleanEpisodeTitle(string $t): string
 {
     $t = preg_replace('/\[[^\]]*\]/', ' ', $t);
-    $t = preg_replace('/[-.][A-Za-z][A-Za-z0-9]{1,15}$/', '', $t);
+    // Trailing scene group only (ALLCAPS): .DIMENSION / -KILLERS — not title words (.Grace)
+    $t = preg_replace('/[-.][A-Z][A-Z0-9]{1,15}$/', '', $t);
     static $noise = [
         'hdtv' => 1, 'pdtv' => 1, 'webrip' => 1, 'webdl' => 1, 'dvdrip' => 1,
         'x264' => 1, 'x265' => 1, 'h264' => 1, 'h265' => 1, 'hevc' => 1, 'xvid' => 1,
