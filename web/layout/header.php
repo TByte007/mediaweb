@@ -26,62 +26,63 @@ body {
     position: sticky; top: 0; z-index: 10;
     background: var(--bg2);
     border-bottom: 1px solid rgba(255,255,255,0.04);
-    padding: 16px 0;
+    padding: 14px 0;
 }
 .wrap { max-width: 1400px; margin: 0 auto; padding: 0 24px; }
-.header-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.header-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .logo {
     display: flex; flex-direction: column; gap: 1px;
-    font-size: 19px; font-weight: 700; color: var(--accent);
+    font-size: 21px; font-weight: 700; color: var(--accent);
     text-decoration: none; white-space: nowrap; line-height: 1.05;
 }
 .logo span { color: var(--text); }
 .logo .logo-owner {
-    font-size: 10px; font-weight: 600; letter-spacing: 0.14em;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.14em;
     text-transform: uppercase; color: var(--muted);
 }
-.search-wrap { flex: 1 1 200px; max-width: 420px; position: relative; }
+.search-wrap { flex: 1 1 220px; max-width: 440px; position: relative; }
 .search-input {
-    width: 100%; padding: 9px 36px 9px 36px;
+    width: 100%; height: 44px; padding: 0 42px;
     border-radius: 999px; border: 1px solid rgba(255,255,255,0.06);
     background: rgba(255,255,255,0.03); color: var(--text);
-    font-size: 14px; outline: none; transition: border 0.2s, box-shadow 0.2s;
+    font-size: 16px; outline: none; transition: border 0.2s, box-shadow 0.2s;
 }
 .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94,114,228,0.18); }
 .search-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 .search-icon {
-    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
-    color: var(--muted); pointer-events: none;
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    color: var(--muted); pointer-events: none; font-size: 16px;
 }
 .search-clear {
     position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
-    width: 26px; height: 26px; border: 0; border-radius: 50%;
+    width: 34px; height: 34px; border: 0; border-radius: 50%;
     background: transparent; color: var(--muted); cursor: pointer;
-    font-size: 18px; line-height: 1; display: none;
+    font-size: 22px; line-height: 1; display: none;
 }
 .search-clear:hover { color: var(--text); background: rgba(255,255,255,0.06); }
 .search-wrap.has-query .search-clear { display: block; }
 .player-pref {
-    flex: 0 0 auto; padding: 8px 12px; border-radius: 999px;
+    flex: 0 0 auto; height: 44px; padding: 0 14px; border-radius: 999px;
     border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.03);
-    color: var(--text); font-size: 13px; outline: none; cursor: pointer;
+    color: var(--text); font-size: 15px; outline: none; cursor: pointer;
 }
 .player-pref:focus { border-color: var(--accent); }
 .player-pref option { color: #1a1a1a; background: #fff; }
-.stats { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.stats { font-size: 13px; color: var(--muted); white-space: nowrap; }
 .len-filters {
-    display: inline-flex; gap: 2px; padding: 3px;
+    display: inline-flex; align-items: stretch; gap: 3px; padding: 4px;
     border-radius: 999px; border: 1px solid rgba(255,255,255,0.06);
     background: rgba(255,255,255,0.03);
 }
 .len-btn {
-    padding: 6px 12px; border-radius: 999px; text-decoration: none;
-    font-size: 12px; font-weight: 600; color: var(--muted);
+    display: inline-flex; align-items: center; min-height: 40px;
+    padding: 0 16px; border-radius: 999px; text-decoration: none;
+    font-size: 14px; font-weight: 600; color: var(--muted);
     transition: color 0.15s, background 0.15s;
 }
 .len-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
 .len-btn.active { color: #fff; background: var(--accent); }
-.len-btn .len-hint { margin-left: 4px; font-size: 10px; font-weight: 500; opacity: 0.55; }
+.len-btn .len-hint { margin-left: 5px; font-size: 12px; font-weight: 500; opacity: 0.55; }
 main { max-width: 1400px; margin: 0 auto; padding: 24px 24px 60px; }
 .info { margin-bottom: 14px; font-size: 12px; color: var(--muted); }
 .info strong { color: var(--accent); }
@@ -113,7 +114,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 24px 24px 60px; }
 .card-body { padding: 9px 11px 10px; display: flex; flex-direction: column; gap: 3px; }
 .card-title {
     font-size: 12px; font-weight: 600; color: var(--text);
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .card-meta { font-size: 10px; color: var(--muted); }
 .empty { text-align: center; padding: 60px 16px; color: var(--muted); }
