@@ -232,11 +232,19 @@ if ($llmTitles) {
         exit(0);
     }
 
-    $sysSeries = 'You name TV shows from torrent/release folder names. '
-        . 'Reply with ONLY the canonical show title on one line. '
-        . 'Expand codes like DS9, SGA, SGU, TNG. '
-        . 'Keep the year in parentheses when known, e.g. Title (1993). '
-        . 'No quality, codec, or group tags.';
+    $sysSeries = 'You output canonical TV show display titles for a media library. '
+        . 'Reply with exactly one line: {Show Name} (YYYY) '
+        . 'YYYY = original first-air / premiere year of the series (not a season, not a rip). '
+        . 'Rules: '
+        . '- Expand folder codes: DS9→Star Trek: Deep Space Nine, TNG→Star Trek: The Next Generation, '
+        . 'SGA→Stargate Atlantis, SGU→Stargate Universe, SG-1 stays Stargate SG-1. '
+        . '- Keep the fullest recognizable show name from Folder/Current title '
+        . '(e.g. Mayday: Air Crash Investigation — not Mayday alone; Black Files: Declassified when present). '
+        . '- Prefer a 19xx/20xx year found in the folder when it is clearly the show year. '
+        . '- Otherwise use the standard premiere year you know for that show. '
+        . '- Keep a year already present in Current title. '
+        . '- Strip quality/codec/group/season pack junk only. '
+        . '- Never reply without (YYYY).';
     $sysVideo = 'Using ONLY words from the user message (file, hint, show), output one display title. '
         . 'Never invent words. Never reuse titles from other videos. '
         . 'Never echo field labels (file/hint/show) in the reply. '
@@ -322,6 +330,11 @@ if ($llmTitles) {
         $top = basename(str_replace('\\', '/', (string)$row['root_key']));
         $user = "Folder: $top\nCurrent title: {$row['title']}";
         $out = mwLlmChat($sysSeries, $user);
+        // Soft retry — model sometimes drops (YYYY) despite the system prompt
+        if ($out !== null && !preg_match('/\((?:19|20)\d{2}\)\s*$/', $out)) {
+            $retry = mwLlmChat($sysSeries, $user . "\nReminder: your reply must end with (YYYY).");
+            if ($retry !== null) $out = $retry;
+        }
         echo "series #{$row['id']} | $top | {$row['title']}  →  "
             . ($out === null ? '(fail)' : $out) . "\n";
         if ($out === null) {
@@ -368,21 +381,36 @@ if ($llmTitles) {
         $show = !empty($row['series_title']) ? (string)$row['series_title'] : '-';
         $code = ($season !== null && $episode !== null)
             ? sprintf('S%02dE%02d', $season, $episode) : null;
-        $epTail = null;
-        if ($code !== null && preg_match('/^S\d{2}E\d{2}\s*[·\-–]\s*(\S+)\s*$/u', trim($heur), $m))
-            $epTail = $m[1];
+        static $releaseToken = null;
+        if ($releaseToken === null) {
+            $releaseToken = static function (string $t): bool {
+                static $noise = [
+                    'korsub' => 1, 'hdrip' => 1, 'bluray' => 1, 'webrip' => 1, 'webdl' => 1,
+                    'hdtv' => 1, 'pdtv' => 1, 'dvdrip' => 1, 'bdrip' => 1, 'brrip' => 1,
+                    'xvid' => 1, 'x264' => 1, 'x265' => 1, 'h264' => 1, 'h265' => 1, 'hevc' => 1,
+                    'ac3' => 1, 'aac' => 1, 'dts' => 1, 'evo' => 1, 'vain' => 1, '2hd' => 1,
+                    'rarbg' => 1, 'yify' => 1, 'proper' => 1, 'repack' => 1, 'internal' => 1,
+                ];
+                $l = strtolower($t);
+                return isset($noise[$l]) || (bool)preg_match('/^\d{3,4}p$/', $l);
+            };
+        }
+        $epName = trim((string)($row['episode_title'] ?? ''));
+        if ($epName === '' && $code !== null
+            && preg_match('/^S\d{2}E\d{2}\s*[·\-–]\s*(.+)$/u', trim($heur), $m))
+            $epName = trim($m[1]);
+        $releaseOnly = $epName !== '' && !str_contains($epName, ' ') && $releaseToken($epName);
         $codeOnly = $code !== null && (
-            preg_match('/^S\d{2}E\d{2}$/i', trim($heur))
-            || ($epTail !== null && !str_contains($epTail, ' ')
-                && preg_match('/^[a-z0-9][a-z0-9._-]{1,20}$/i', $epTail))
+            preg_match('/^S\d{2}E\d{2}$/i', trim($heur)) || $releaseOnly
         );
-        if ($codeOnly && $show === '-') {
+        $namedEp = $code !== null && $epName !== '' && !$releaseOnly;
+        if (($codeOnly || $namedEp) && $show === '-') {
             $guess = $showFromFilename($fn);
             if ($guess !== null) $show = $guess;
         }
 
-        if ($codeOnly && $show !== '-') {
-            $out = "$show $code";
+        if (($codeOnly || $namedEp) && $show !== '-') {
+            $out = $namedEp ? "$show: $epName $code" : "$show $code";
             echo "video #{$row['id']} | $show | $heur | $rel  →  $out (no-llm)\n";
             $stmtName->reset();
             $stmtName->bindValue(1, $out);

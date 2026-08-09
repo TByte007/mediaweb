@@ -44,10 +44,24 @@ function cleanEpisodeTitle(string $t): string
         if ($p === '') continue;
         $l = strtolower($p);
         if (isset($noise[$l]) || preg_match('/^\d{3,4}p$/', $l)) continue;
-        if (!preg_match('/[a-z]{2,}/i', $p)) continue;
+        $isAnd = ($p === '&' || $l === 'and');
+        $isPartNum = (bool)preg_match('/^\d{1,2}$/', $p);
+        if (!preg_match('/[a-z]{2,}/i', $p) && !$isAnd && !$isPartNum) continue;
+        // Keep "Part 1 & 2" — lone digits / & only after Part/Pt/Ep or another part token
+        if ($isAnd || $isPartNum) {
+            if ($kept === []) continue;
+            $prev = strtolower($kept[count($kept) - 1]);
+            if (!preg_match('/^(part|pt|episode|ep|\d{1,2}|and|&)$/', $prev)) continue;
+        }
         $kept[] = $p;
     }
     return $kept === [] ? '' : prettifyFilename(implode(' ', $kept));
+}
+
+/** Drop trailing half of sXXeYY&eZZ / sXXeYY-eZZ (keep first episode only). */
+function stripDoubleEpisodeTail(string $rest): string
+{
+    return (string)preg_replace('/^[&._\s-]*e\d{1,2}\b/i', '', $rest);
 }
 
 /** @return array{season: ?int, episode: ?int, episode_title: ?string} */
@@ -83,7 +97,7 @@ function parseEpisodeFields(string $filepath): array
         || preg_match('/\bseason\s*(\d{1,2})\s+episode\s*(\d{1,3})\b(.*)$/i', $stem, $m)) {
         $out['season'] = (int)$m[1];
         $out['episode'] = (int)$m[2];
-        $rest = cleanEpisodeTitle((string)$m[3]);
+        $rest = cleanEpisodeTitle(stripDoubleEpisodeTail((string)$m[3]));
         if ($rest !== '') $out['episode_title'] = $rest;
         return $out;
     }
