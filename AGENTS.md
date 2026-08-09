@@ -25,6 +25,8 @@ php list.php --columns=filename,width,height,duration_secs,needs_fix
 
 **Default behavior:** Skips files already in DB (fast incremental scans). New files get MediaInfo + PTS/`needs_fix` detect. Missing files marked as `is_deleted=1`. Use `--force-rescan` to re-extract metadata; `--scan-only` to refresh `needs_fix` on candidates.
 
+**Series linking:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) parses season/episode from paths, upserts the `series` table, and sets `videos.series_id`. No MediaInfo required for that pass — an incremental scan that walks the tree is enough after deploy.
+
 ## Config (`config.php`)
 
 - `MW_DB`: database path (`./media.db`)
@@ -107,11 +109,19 @@ Videos marked `is_deleted=1` when their file disappears between scans. They stay
 
 Purge with: `DELETE FROM videos WHERE is_deleted=1;`
 
+## Series browse
+
+Web: `?mode=series` → shows → `?mode=series&sid=N` → seasons → `&season=N` → episodes (binge order). Flat Library still lists episodes.
+
+Detection (per top-level folder under a media root): ≥2 season-like child dirs with videos, **or** ≥5 files with a parseable episode. Columns: `series` (`root_key`, `title`, `cover_video_id`); on `videos`: `series_id`, `season`, `episode`, `episode_title`.
+
 ## Web structure
 
 ```
-web/index.php          → router (library or video view)
+web/index.php          → router (library, series mode, or video view)
 web/library.php        → search + video grid (excludes is_deleted=1, shows [!] for needs_fix=1)
+web/series.php         → Series mode: shows → seasons → episodes
+series.php             → parseEpisodeFields / linkSeries (used by scan + web)
 web/view.php → video player (movi-player normally; avbridge-player for needs_fix=1)
 web/vendor/avbridge/ → avbridge player-browser + libav WASM (lazy-loaded)
 web/getcover.php       → cached non-black thumbnail generation

@@ -16,6 +16,8 @@
 declare(strict_types=1);
 
 require __DIR__ . '/config.php';
+require __DIR__ . '/web/layout/helpers.php';
+require __DIR__ . '/series.php';
 
 $scanDirs = array_map(fn($d) => rtrim($d['fs'], '/'), MW_MEDIA_DIRS);
 $dbFile      = MW_DB;
@@ -58,6 +60,10 @@ Behavior:
 
     --scan-only:
         Re-check candidates above; UPDATE needs_fix from the PTS tests.
+
+    Series:
+        After a normal scan (not --scan-only), link shows/seasons/episodes from
+        paths into the series table (see series.php). Incremental walk is enough.
 
 USAGE;
     echo str_replace('MW_DB', MW_DB, "Default DB: MW_DB\n");
@@ -124,7 +130,22 @@ CREATE TABLE IF NOT EXISTS videos (
     playback_count  INTEGER DEFAULT 0,
     needs_fix       INTEGER DEFAULT 0,
     is_deleted      INTEGER DEFAULT 0,
+    series_id       INTEGER,
+    season          INTEGER,
+    episode         INTEGER,
+    episode_title   TEXT,
     scanned_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at      DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+SQL
+);
+
+$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS series (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    root_key        TEXT NOT NULL UNIQUE,
+    title           TEXT NOT NULL,
+    cover_video_id  INTEGER,
     updated_at      DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 SQL
@@ -134,25 +155,40 @@ $db->exec('CREATE INDEX IF NOT EXISTS idx_videos_directory ON videos(directory);
 $db->exec('CREATE INDEX IF NOT EXISTS idx_videos_width   ON videos(width);');
 $db->exec('CREATE INDEX IF NOT EXISTS idx_videos_height  ON videos(height);');
 $db->exec('CREATE INDEX IF NOT EXISTS idx_videos_playback_count ON videos(playback_count DESC);');
+$db->exec('CREATE INDEX IF NOT EXISTS idx_videos_series ON videos(series_id, season, episode);');
+$db->exec('CREATE INDEX IF NOT EXISTS idx_series_root ON series(root_key);');
 
 $result = $db->query('PRAGMA table_info(videos);');
 $hasNeedsFix = false;
 $hasIsDeleted = false;
+$hasSeriesId = false;
+$hasSeason = false;
+$hasEpisode = false;
+$hasEpisodeTitle = false;
 while ($col = $result->fetchArray(2)) {
     if (!empty($col) && isset($col[1])) {
         if ($col[1] === 'needs_fix') $hasNeedsFix = true;
         if ($col[1] === 'is_deleted') $hasIsDeleted = true;
+        if ($col[1] === 'series_id') $hasSeriesId = true;
+        if ($col[1] === 'season') $hasSeason = true;
+        if ($col[1] === 'episode') $hasEpisode = true;
+        if ($col[1] === 'episode_title') $hasEpisodeTitle = true;
     }
 }
 if (!$hasNeedsFix) $db->exec('ALTER TABLE videos ADD COLUMN needs_fix INTEGER DEFAULT 0;');
 if (!$hasIsDeleted) $db->exec('ALTER TABLE videos ADD COLUMN is_deleted INTEGER DEFAULT 0;');
+if (!$hasSeriesId) $db->exec('ALTER TABLE videos ADD COLUMN series_id INTEGER;');
+if (!$hasSeason) $db->exec('ALTER TABLE videos ADD COLUMN season INTEGER;');
+if (!$hasEpisode) $db->exec('ALTER TABLE videos ADD COLUMN episode INTEGER;');
+if (!$hasEpisodeTitle) $db->exec('ALTER TABLE videos ADD COLUMN episode_title TEXT;');
 
 $stmtUpsert = $db->prepare(<<<SQL
 INSERT INTO videos
   (filepath, filename, directory, filesize_bytes, duration_secs,
    video_format, video_codec, width, height, aspect_ratio, frame_rate,
-   video_bitrate, audio_tracks, subtitle_tracks, title, full_info, needs_fix, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+   video_bitrate, audio_tracks, subtitle_tracks, title, full_info, needs_fix,
+   season, episode, episode_title, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT(filepath) DO UPDATE SET
   filename        = excluded.filename,
   directory       = excluded.directory,
@@ -170,6 +206,9 @@ ON CONFLICT(filepath) DO UPDATE SET
   title           = excluded.title,
   full_info       = excluded.full_info,
   needs_fix       = excluded.needs_fix,
+  season          = excluded.season,
+  episode         = excluded.episode,
+  episode_title   = excluded.episode_title,
   is_deleted      = 0,
   updated_at      = datetime('now')
 SQL
@@ -341,6 +380,7 @@ function upsertVideo(\SQLite3Stmt $stmt, string $path, array $json, int $needsFi
     $video   = tracksByType($json, 'Video')[0] ?? [];
     $audioN  = count(tracksByType($json, 'Audio'));
     $subN    = count(tracksByType($json, 'Text'));
+    $ep = parseEpisodeFields($path);
 
     $stmt->reset();
     $stmt->bindValue(1, $path);
@@ -360,6 +400,9 @@ function upsertVideo(\SQLite3Stmt $stmt, string $path, array $json, int $needsFi
     $stmt->bindValue(15, $general['Title'] ?? null);
     $stmt->bindValue(16, $json['_raw'] ?? null);
     $stmt->bindValue(17, $needsFix);
+    $stmt->bindValue(18, $ep['season'], $ep['season'] === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+    $stmt->bindValue(19, $ep['episode'], $ep['episode'] === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+    $stmt->bindValue(20, $ep['episode_title'], $ep['episode_title'] === null ? SQLITE3_NULL : SQLITE3_TEXT);
     $stmt->execute();
 }
 
@@ -505,12 +548,22 @@ if (!$dirOverride && !empty($knownFiles) && !$scanOnly) {
     }
 }
 
+$seriesStats = ['series' => 0, 'linked' => 0];
+if (!$scanOnly) {
+    $db->exec('BEGIN;');
+    $seriesStats = linkSeries($db);
+    $db->exec('COMMIT;');
+}
+
 echo "\nScan complete.\n";
 echo "  Processed: $processed\n";
 echo "  Skipped:   $skipped (already in database)\n";
 if ($scanOnly) echo "  Updated:   $updated (needs_fix refreshed)\n";
 echo "  Flagged:   $flagged (needs_fix / PTS browser warning)\n";
 echo "  Errors:    $errors\n";
+if (!$scanOnly) {
+    echo "  Series:    {$seriesStats['series']} shows, {$seriesStats['linked']} episodes linked\n";
+}
 echo "  Database:  $dbFile\n";
 
 $db->close();

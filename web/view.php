@@ -2,8 +2,9 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/layout/helpers.php';
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/layout/helpers.php';
+require_once __DIR__ . '/../series.php';
 
 $id = (int)$_GET['view'];
 
@@ -12,8 +13,16 @@ if (!file_exists(MW_DB)) { http_response_code(500); die('DB missing'); }
 $db = new SQLite3(MW_DB);
 $db->busyTimeout(5000);
 $row = $db->querySingle("SELECT id, filename, filepath, video_format, width, height, duration_secs,
-        filesize_bytes, audio_tracks, subtitle_tracks, title, playback_count, needs_fix, is_deleted
+        filesize_bytes, audio_tracks, subtitle_tracks, title, playback_count, needs_fix, is_deleted,
+        series_id, season, episode, episode_title
         FROM videos WHERE id = $id", true);
+$seriesNav = null;
+if ($row && !empty($row['series_id'])) {
+    $seriesNav = $db->querySingle(
+        'SELECT id, title FROM series WHERE id = ' . (int)$row['series_id'],
+        true
+    );
+}
 $db->close();
 
 if (!$row) { http_response_code(404); die('<h1>Not found</h1>'); }
@@ -24,6 +33,8 @@ if ($isDeleted) {
     die('<h1>Deleted</h1><p>This video was removed from storage but is kept in the database.</p>');
 }
 
+$seasonNum = isset($row['season']) && $row['season'] !== null ? (int)$row['season'] : null;
+$episodeNum = isset($row['episode']) && $row['episode'] !== null ? (int)$row['episode'] : null;
 $v = [
     'id'               => (int)$row['id'],
     'filename'         => (string)$row['filename'],
@@ -35,7 +46,14 @@ $v = [
     'filesize_bytes'   => (int)$row['filesize_bytes'],
     'audio_tracks'     => (int)$row['audio_tracks'],
     'subtitle_tracks'  => (int)$row['subtitle_tracks'],
-    'title'            => videoPrettyTitle((string)$row['filename'], $row['title'] ?? null),
+    'title'            => episodePrettyTitle(
+        (string)$row['filename'],
+        $row['title'] ?? null,
+        (string)$row['filepath'],
+        $seasonNum,
+        $episodeNum,
+        $row['episode_title'] ?? null
+    ),
     'playback_count'   => (int)$row['playback_count'],
     'needs_fix'        => isset($row['needs_fix']) ? (int)$row['needs_fix'] : 0,
 ];
@@ -138,7 +156,11 @@ $subsLabel = $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's
         <p>If it still jitters, <a href="<?= $videoUrlEsc ?>" download>download the file</a> and open it in <strong>VLC</strong>.</p>
     </div>
 <?php endif; ?>
+<?php if ($seriesNav): ?>
+    <a class="back-link" href="<?= MW_BASE_URL ?>?mode=series&sid=<?= (int)$seriesNav['id'] ?><?= $seasonNum !== null ? '&season=' . $seasonNum : '' ?>">&#8592; <?= htmlspecialchars((string)$seriesNav['title']) ?><?= $seasonNum !== null ? ' · Season ' . $seasonNum : '' ?></a>
+<?php else: ?>
     <a class="back-link" href="<?= MW_BASE_URL ?>">&#8592; Back to library</a>
+<?php endif; ?>
 </div>
 </div>
 </main>

@@ -7,6 +7,7 @@ PHP tool that scans video directories, extracts metadata with MediaInfo, stores 
 - Incremental directory scans (new files only by default)
 - MediaInfo → SQLite catalog (`media.db`)
 - Web library with search, thumbnails, and play counts
+- **Series mode** (`?mode=series`): browse show → season → episodes (detected at scan time)
 - Browser playback via movi-player; **avbridge** (libav WASM) for files flagged `needs_fix`
 - Soft-delete tracking when files disappear between scans
 
@@ -45,7 +46,7 @@ php list.php --count --format=AVC
 php list.php --columns=filename,width,height,duration_secs,needs_fix
 ```
 
-**Default scan:** skip files already in the DB; probe new ones; mark missing rows `is_deleted=1` (hidden from the library, kept for play counts).
+**Default scan:** skip files already in the DB; probe new ones; mark missing rows `is_deleted=1` (hidden from the library, kept for play counts). End of scan also links series/seasons/episodes from directory layout (see `series.php`).
 
 ## Config
 

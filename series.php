@@ -1,0 +1,254 @@
+<?php
+
+/**
+ * Series / season / episode detection (scan-time + shared helpers).
+ */
+
+declare(strict_types=1);
+
+function isSeriesJunkDir(string $base): bool
+{
+    static $junk = [
+        'sample' => 1, 'samples' => 1, 'cd1' => 1, 'cd2' => 1, 'cd3' => 1, 'cd4' => 1,
+        'video_ts' => 1, 'audio_ts' => 1, 'subs' => 1, 'subtitles' => 1, 'subtitle' => 1,
+        'extras' => 1, 'featurettes' => 1, 'bonus' => 1, 'bonuses' => 1,
+        'proof' => 1, 'cover' => 1, 'covers' => 1, 'screens' => 1, 'screenshots' => 1,
+    ];
+    return isset($junk[strtolower($base)]);
+}
+
+function parseSeasonFromDirName(string $base): ?int
+{
+    // Episode tokens in a dir name are not a season label
+    if (preg_match('/s\d{1,2}e\d{1,2}/i', $base)) return null;
+    if (preg_match('/(?:^|[.\s_-])(?:season|series|seizoen)[.\s_-]*(\d{1,2})(?:[.\s_-]|$)/i', $base, $m))
+        return (int)$m[1];
+    if (preg_match('/(?:^|[.\s_-])s(\d{1,2})(?:[.\s_-]|$)/i', $base, $m))
+        return (int)$m[1];
+    return null;
+}
+
+function cleanEpisodeTitle(string $t): string
+{
+    $t = preg_replace('/\[[^\]]*\]/', ' ', $t);
+    $t = preg_replace('/[-.][A-Za-z][A-Za-z0-9]{1,15}$/', '', $t);
+    static $noise = [
+        'hdtv' => 1, 'pdtv' => 1, 'webrip' => 1, 'webdl' => 1, 'dvdrip' => 1,
+        'x264' => 1, 'x265' => 1, 'h264' => 1, 'h265' => 1, 'hevc' => 1, 'xvid' => 1,
+        'aac' => 1, 'ac3' => 1, 'dts' => 1, 'proper' => 1, 'repack' => 1, 'internal' => 1,
+        'killers' => 1, 'rarbg' => 1, 'scene' => 1,
+    ];
+    $kept = [];
+    foreach (preg_split('/[.\s_-]+/', $t) as $p) {
+        if ($p === '') continue;
+        $l = strtolower($p);
+        if (isset($noise[$l]) || preg_match('/^\d{3,4}p$/', $l)) continue;
+        if (!preg_match('/[a-z]{2,}/i', $p)) continue;
+        $kept[] = $p;
+    }
+    return $kept === [] ? '' : prettifyFilename(implode(' ', $kept));
+}
+
+/** @return array{season: ?int, episode: ?int, episode_title: ?string} */
+function parseEpisodeFields(string $filepath): array
+{
+    $filepath = str_replace('\\', '/', $filepath);
+    $dir = dirname($filepath);
+    $parent = basename($dir);
+    $out = ['season' => null, 'episode' => null, 'episode_title' => null];
+    if (isSeriesJunkDir($parent)) return $out;
+
+    $stem = basename($filepath);
+    if (preg_match('/\.(mkv|avi|mp4|mov|wmv|m4v|webm|mpe?g|ts|flv)$/i', $stem))
+        $stem = (string)preg_replace('/\.[^.]+$/', '', $stem);
+
+    $seasonFromPath = null;
+    $d = $dir;
+    while ($d !== '/' && $d !== '.' && $d !== '') {
+        $b = basename($d);
+        if (!isSeriesJunkDir($b)) {
+            $s = parseSeasonFromDirName($b);
+            if ($s !== null) {
+                $seasonFromPath = $s;
+                break;
+            }
+        }
+        $next = dirname($d);
+        if ($next === $d) break;
+        $d = $next;
+    }
+
+    if (preg_match('/s(\d{1,2})e(\d{1,2})(.*)$/i', $stem, $m)
+        || preg_match('/\bseason\s*(\d{1,2})\s+episode\s*(\d{1,3})\b(.*)$/i', $stem, $m)) {
+        $out['season'] = (int)$m[1];
+        $out['episode'] = (int)$m[2];
+        $rest = cleanEpisodeTitle((string)$m[3]);
+        if ($rest !== '') $out['episode_title'] = $rest;
+        return $out;
+    }
+
+    if (preg_match('/(?:^|[\s._-])(?:episode|ep)\s*(\d{1,3})\b(.*)$/i', $stem, $m)) {
+        $out['episode'] = (int)$m[1];
+        $out['season'] = preg_match('/\bseason\s*(\d{1,2})\b/i', $stem, $sm)
+            ? (int)$sm[1]
+            : $seasonFromPath;
+        $rest = cleanEpisodeTitle((string)$m[2]);
+        if ($rest !== '') $out['episode_title'] = $rest;
+        return $out;
+    }
+
+    if ($seasonFromPath !== null) $out['season'] = $seasonFromPath;
+    return $out;
+}
+
+/** @return array{root_key: string, top: string}|null */
+function showRootFromPath(string $filepath): ?array
+{
+    $filepath = str_replace('\\', '/', $filepath);
+    foreach (MW_MEDIA_DIRS as $root) {
+        $fs = rtrim(str_replace('\\', '/', $root['fs']), '/');
+        if (!str_starts_with($filepath, $fs . '/')) continue;
+        $top = explode('/', substr($filepath, strlen($fs) + 1), 2)[0];
+        if ($top === '') return null;
+        return ['root_key' => $fs . '/' . $top, 'top' => $top];
+    }
+    return null;
+}
+
+function seriesShowTitle(string $topFolder): string
+{
+    $s = preg_replace('/\[[^\]]*\]/', ' ', $topFolder);
+    $s = preg_replace('/(?:^|[.\s_-])season[.\s_-]*\d{1,2}[.\s_-]*[-–][.\s_-]*\d{1,2}(?=[.\s_-]|$)/i', ' ', $s);
+    $s = preg_replace('/\bseason\s*\d{1,2}(?:\s*,\s*\d{1,2})+(?:\s*&\s*\d{1,2})?/i', ' ', $s);
+    $s = preg_replace('/\bs\d{1,2}\s*[-–]\s*s?\d{1,2}\b/i', ' ', $s);
+    $s = preg_replace('/(?:^|[.\s_-])season[.\s_-]*\d{1,2}(?=[.\s_-]|$)/i', ' ', $s);
+    if (!preg_match('/s\d{1,2}e\d{1,2}/i', $s))
+        $s = preg_replace('/(?:^|[.\s_-])s\d{1,2}(?=[.\s_-]|$)/i', ' ', $s);
+    $s = preg_replace('/\b(deluxe|boxset|box\s*set|extras?\s+in\s+hd|dvd|bluray|blu\s*ray|amzn|nf|hulu|ddp\d*(?:\.\d+)?)\b/i', ' ', $s);
+    $s = preg_replace('/\s*&\s*/', ' ', $s);
+    $s = preg_replace('/[-.][A-Za-z][A-Za-z0-9]{1,15}$/', '', $s);
+    $s = preg_replace('/\s+/', ' ', trim((string)$s, " \t._-+"));
+    return prettifyFilename($s !== '' ? $s : $topFolder);
+}
+
+function episodePrettyTitle(
+    string $filename,
+    ?string $dbTitle,
+    ?string $filepath,
+    ?int $season,
+    ?int $episode,
+    ?string $episodeTitle
+): string {
+    if ($season === null || $episode === null)
+        return videoPrettyTitle($filename, $dbTitle, $filepath);
+    $code = sprintf('S%02dE%02d', $season, $episode);
+    return ($episodeTitle !== null && $episodeTitle !== '') ? "$code · $episodeTitle" : $code;
+}
+
+/**
+ * Re-parse living videos, qualify show roots, upsert series, set series_id.
+ *
+ * @return array{series: int, linked: int}
+ */
+function linkSeries(\SQLite3 $db): array
+{
+    $rs = $db->query('SELECT id, filepath, directory FROM videos WHERE is_deleted = 0');
+    $byRoot = [];
+    while ($row = $rs->fetchArray(SQLITE3_ASSOC)) {
+        $root = showRootFromPath((string)$row['filepath']);
+        if ($root === null) continue;
+        $key = $root['root_key'];
+        if (!isset($byRoot[$key]))
+            $byRoot[$key] = ['top' => $root['top'], 'videos' => [], 'season_dirs' => []];
+
+        $fields = parseEpisodeFields((string)$row['filepath']);
+        $byRoot[$key]['videos'][] = [
+            'id' => (int)$row['id'],
+            'season' => $fields['season'],
+            'episode' => $fields['episode'],
+            'episode_title' => $fields['episode_title'],
+        ];
+
+        $dir = str_replace('\\', '/', (string)$row['directory']);
+        if (str_starts_with($dir, $key)) {
+            foreach (explode('/', trim(substr($dir, strlen($key)), '/')) as $seg) {
+                if ($seg !== '' && parseSeasonFromDirName($seg) !== null)
+                    $byRoot[$key]['season_dirs'][$seg] = true;
+            }
+        } elseif (parseSeasonFromDirName($root['top']) !== null) {
+            $byRoot[$key]['season_dirs'][$root['top']] = true;
+        }
+    }
+
+    // Reset parse/link fields; re-apply only for rooted videos below
+    $db->exec(
+        'UPDATE videos SET series_id = NULL, season = NULL, episode = NULL, episode_title = NULL
+         WHERE is_deleted = 0'
+    );
+
+    $stmtFields = $db->prepare(
+        'UPDATE videos SET season = ?, episode = ?, episode_title = ?, series_id = ? WHERE id = ?'
+    );
+    $stmtSeries = $db->prepare(
+        'INSERT INTO series (root_key, title, cover_video_id, updated_at)
+         VALUES (?, ?, ?, datetime(\'now\'))
+         ON CONFLICT(root_key) DO UPDATE SET
+           title = excluded.title,
+           cover_video_id = excluded.cover_video_id,
+           updated_at = datetime(\'now\')'
+    );
+    $stmtGetId = $db->prepare('SELECT id FROM series WHERE root_key = ?');
+
+    $seriesCount = 0;
+    $linked = 0;
+    $keepIds = [];
+
+    foreach ($byRoot as $key => $info) {
+        $withEp = 0;
+        $coverId = null;
+        foreach ($info['videos'] as $v) {
+            if ($v['episode'] === null) continue;
+            $withEp++;
+            if ($coverId === null && $v['season'] !== null) $coverId = $v['id'];
+        }
+        $qualify = count($info['season_dirs']) >= 2 || $withEp >= 5;
+
+        $seriesId = null;
+        if ($qualify) {
+            if ($coverId === null && $info['videos'] !== [])
+                $coverId = $info['videos'][0]['id'];
+            $stmtSeries->reset();
+            $stmtSeries->bindValue(1, $key);
+            $stmtSeries->bindValue(2, seriesShowTitle($info['top']));
+            $stmtSeries->bindValue(3, $coverId, $coverId === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+            $stmtSeries->execute();
+            $stmtGetId->reset();
+            $stmtGetId->bindValue(1, $key);
+            $seriesId = (int)$stmtGetId->execute()->fetchArray(2)[0];
+            $keepIds[] = $seriesId;
+            $seriesCount++;
+        }
+
+        foreach ($info['videos'] as $v) {
+            $sid = ($seriesId !== null && $v['season'] !== null && $v['episode'] !== null)
+                ? $seriesId : null;
+            if ($sid !== null) $linked++;
+            $stmtFields->reset();
+            $stmtFields->bindValue(1, $v['season'], $v['season'] === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+            $stmtFields->bindValue(2, $v['episode'], $v['episode'] === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+            $stmtFields->bindValue(3, $v['episode_title'], $v['episode_title'] === null ? SQLITE3_NULL : SQLITE3_TEXT);
+            $stmtFields->bindValue(4, $sid, $sid === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+            $stmtFields->bindValue(5, $v['id'], SQLITE3_INTEGER);
+            $stmtFields->execute();
+        }
+    }
+
+    if ($keepIds !== []) {
+        $in = implode(',', array_map('intval', $keepIds));
+        $db->exec("DELETE FROM series WHERE id NOT IN ($in)");
+    } else {
+        $db->exec('DELETE FROM series');
+    }
+
+    return ['series' => $seriesCount, 'linked' => $linked];
+}

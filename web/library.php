@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/layout/helpers.php';
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/layout/helpers.php';
 
 $dbFile = MW_DB;
 $basePath = MW_BASE_URL;
@@ -37,7 +37,7 @@ $where = ["is_deleted = 0"];
 $params = [];
 
 if ($search) {
-    $where[] = "filename LIKE :q OR title LIKE :q";
+    $where[] = "filename LIKE :q OR title LIKE :q OR directory LIKE :q";
     $params['q'] = "%$search%";
 }
 if ($len !== '') $where[] = $lenFilters[$len][0];
@@ -69,7 +69,7 @@ while ($row = $result->fetchArray(2)) {
         'filesize_bytes'   => (int)($row[7] ?? 0),
         'audio_tracks'     => (int)($row[8] ?? 0),
         'subtitle_tracks'  => (int)($row[9] ?? 0),
-        'title'            => videoPrettyTitle((string)$row[1], $row[10] ?? null),
+        'title'            => videoPrettyTitle((string)$row[1], $row[10] ?? null, (string)$row[2]),
         'playback_count'   => (int)($row[11] ?? 0),
         'needs_fix'        => (int)($row[12] ?? 0),
     ];

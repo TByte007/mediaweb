@@ -1,4 +1,4 @@
-<?php require __DIR__ . '/helpers.php'; ?>
+<?php require_once __DIR__ . '/helpers.php'; ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -217,19 +217,32 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
 <div class="wrap">
     <div class="header-row">
         <a class="logo" href="<?= $basePath ?>"><?php if (MW_OWNER !== ''): ?><span class="logo-owner"><?= htmlspecialchars(MW_OWNER) ?></span><?php endif; ?>Media<span>Web</span></a>
+        <?php
+        $browseMode = (($_GET['mode'] ?? '') === 'series' || ($mode ?? '') === 'series') ? 'series' : 'library';
+        $searchPlaceholder = $browseMode === 'series' ? 'Search series...' : 'Search videos...';
+        ?>
         <form class="search-wrap<?= ($search ?? '') !== '' ? ' has-query' : '' ?>" action="<?= $basePath ?>" method="get" id="search-form">
             <span class="search-icon">&#128269;</span>
-            <input class="search-input" id="search-input" type="search" name="q" placeholder="Search videos..." value="<?= htmlspecialchars($search ?? '') ?>" autocomplete="off">
+            <input class="search-input" id="search-input" type="search" name="q" placeholder="<?= htmlspecialchars($searchPlaceholder) ?>" value="<?= htmlspecialchars($search ?? '') ?>" autocomplete="off">
             <button type="button" class="search-clear" id="search-clear" aria-label="Clear search">&times;</button>
-            <?php if (!empty($len)): ?>
+            <?php if ($browseMode === 'series'): ?>
+            <input type="hidden" name="mode" value="series">
+            <?php if (!empty($sid)): ?><input type="hidden" name="sid" value="<?= (int)$sid ?>"><?php endif; ?>
+            <?php if (isset($season) && $season !== null): ?><input type="hidden" name="season" value="<?= (int)$season ?>"><?php endif; ?>
+            <?php endif; ?>
+            <?php if (!empty($len) && $browseMode === 'library'): ?>
             <input type="hidden" name="len" value="<?= htmlspecialchars($len) ?>">
             <?php endif; ?>
         </form>
-        <?php if (isset($lenFilters)): ?>
+        <nav class="len-filters" aria-label="Browse mode">
+            <a class="len-btn<?= $browseMode === 'library' ? ' active' : '' ?>" href="<?= htmlspecialchars($basePath . (!empty($len) ? '?len=' . urlencode($len) : '')) ?>">Library</a>
+            <a class="len-btn<?= $browseMode === 'series' ? ' active' : '' ?>" href="<?= htmlspecialchars($basePath . '?mode=series') ?>">Series</a>
+        </nav>
+        <?php if ($browseMode === 'library' && isset($lenFilters)): ?>
         <nav class="len-filters" aria-label="Filter by length">
-            <a class="len-btn<?= $len === '' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => null, 'page' => null])) ?>">All</a>
+            <a class="len-btn<?= $len === '' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => null, 'page' => null, 'mode' => null])) ?>">All</a>
             <?php foreach ($lenFilters as $key => [, $label, $hint]): ?>
-            <a class="len-btn<?= $len === $key ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => $key, 'page' => null])) ?>"><?= $label ?> <span class="len-hint"><?= htmlspecialchars($hint) ?></span></a>
+            <a class="len-btn<?= $len === $key ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => $key, 'page' => null, 'mode' => null])) ?>"><?= $label ?> <span class="len-hint"><?= htmlspecialchars($hint) ?></span></a>
             <?php endforeach; ?>
         </nav>
         <?php endif; ?>
@@ -238,7 +251,14 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
             <option value="movi">Player: movi</option>
             <option value="avbridge">Player: avbridge</option>
         </select>
-        <div class="stats"><?= isset($total) && $total ? number_format($total) . ' videos' : '' ?></div>
+        <div class="stats"><?php
+            if (isset($total) && $total) {
+                if ($browseMode === 'series' && ($seriesLevel ?? '') === 'shows') echo number_format($total) . ' series';
+                elseif ($browseMode === 'series' && ($seriesLevel ?? '') === 'seasons') echo number_format($total) . ' seasons';
+                elseif ($browseMode === 'series') echo number_format($total) . ' episodes';
+                else echo number_format($total) . ' videos';
+            }
+        ?></div>
     </div>
 </div>
 </header>
@@ -280,6 +300,11 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
         });
     }
     document.addEventListener('click', (e) => {
+        const nav = e.target.closest('.card[data-href]');
+        if (nav) {
+            location.href = nav.dataset.href;
+            return;
+        }
         const card = e.target.closest('.card[data-id]');
         if (!card) return;
         const p = sessionStorage.getItem(KEY) || 'auto';
