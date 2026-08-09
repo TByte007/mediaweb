@@ -237,28 +237,62 @@ if ($llmTitles) {
         . 'Expand codes like DS9, SGA, SGU, TNG. '
         . 'Keep the year in parentheses when known, e.g. Title (1993). '
         . 'No quality, codec, or group tags.';
-    $sysVideo = 'Using ONLY words from the user message (Path, Heuristic, Show), output one display title. '
+    $sysVideo = 'Using ONLY words from the user message (file, hint, show), output one display title. '
         . 'Never invent words. Never reuse titles from other videos. '
+        . 'Never echo field labels (file/hint/show) in the reply. '
+        . 'Keep abbreviations as written (Vol stays Vol, not Volume). '
+        . 'Tags like KORSUB, HDRip, XviD, 2hd, EVO are NOT titles — ignore them. '
         . 'Rules: '
-        . '(1) If Heuristic or Path has an episode name (not just SxxExx / epNN), output: {Show}: {EpisodeName} {SxxExx} '
-        . 'where Show is the Show field and EpisodeName is copied from Heuristic/Path. '
-        . '(2) If there is no episode name, output: {Show} {SxxExx} with no colon. '
-        . '(3) For movies, keep the year in parentheses when known, e.g. Title (1993) : {Title} (YYYY). '
-        . '(4) Be sure not to repeat the episode name in the output. '
-        . 'Ignore codec/quality/group tags. Reply SKIP if unusable.';
+        . '(1) If hint or file has a real episode name (not just SxxExx / epNN / a release group), '
+        . 'output: {show}: {EpisodeName} {SxxExx}. '
+        . '(2) If there is only SxxExx (or SxxExx plus a release group like 2hd), output: {show} {SxxExx}. '
+        . 'If show is missing, take the show name from the file (words before SxxExx). '
+        . '(3) For movies, keep the year in parentheses when known, e.g. Title (1993). '
+        . 'Always use parentheses around the year: {Title} (YYYY) — never Title YYYY. '
+        . '(4) Do not repeat the episode code. Keep the full episode name — do not truncate. '
+        . 'Prefer a best-effort title over SKIP. Reply SKIP only if there are truly no title words.';
 
     $titleGrounded = static function (string $reply, string $user): bool {
         $tok = static function (string $s): array {
             $s = strtolower(preg_replace('/[^a-z0-9]+/i', ' ', $s) ?? '');
-            return preg_split('/\s+/', trim($s), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            $parts = preg_split('/\s+/', trim($s), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            // Vol ↔ Volume so "Vol 2" inputs accept "Volume 2" replies and vice versa
+            $out = [];
+            foreach ($parts as $t) {
+                $out[] = $t;
+                if ($t === 'vol') $out[] = 'volume';
+                if ($t === 'volume') $out[] = 'vol';
+            }
+            return $out;
         };
         $allow = array_flip($tok($user));
         foreach ($tok($reply) as $t) {
-            if (preg_match('/^(s\d{1,2}e\d{1,2}|e\d+|ep\d+|season|episode)$/', $t)) continue;
+            if (preg_match('/^(s\d{1,2}e\d{1,2}|e\d+|ep\d+|season|episode|file|hint|show)$/', $t)) continue;
             if (strlen($t) <= 1) continue;
             if (!isset($allow[$t])) return false;
         }
         return true;
+    };
+    $titleEchoesLabel = static function (string $reply): bool {
+        return (bool)preg_match('/^(path|heuristic|show|file|hint)\s*:/i', $reply)
+            || (bool)preg_match('/^(path|heuristic|file|hint)$/i', $reply);
+    };
+    $movieTitleFromHint = static function (string $heur): string {
+        $h = preg_replace(
+            '/\b(korsub|hdrip|bluray|blu-?ray|webrip|web-?dl|hdtv|dvdrip|xvid|x264|x265|hevc|ac3|aac|dts|evo|vain|2hd|rarbg|yify)\b/i',
+            ' ',
+            $heur
+        );
+        $h = preg_replace('/\s+/', ' ', trim((string)$h));
+        if (preg_match('/^(.*?)(?:\s+)((?:19|20)\d{2})$/', $h, $m))
+            return trim($m[1]) . ' (' . $m[2] . ')';
+        return $h;
+    };
+    $showFromFilename = static function (string $fn): ?string {
+        $base = pathinfo($fn, PATHINFO_FILENAME);
+        if (!preg_match('/^(.+?)[.\-_ ]s\d{1,2}e\d{1,2}\b/i', $base, $m)) return null;
+        $s = prettifyFilename($m[1]);
+        return $s !== '' ? $s : null;
     };
 
     // Long LLM waits must not hold an open SELECT cursor (blocks other writers → "database is locked").
@@ -332,8 +366,19 @@ if ($llmTitles) {
         $show = !empty($row['series_title']) ? (string)$row['series_title'] : '-';
         $code = ($season !== null && $episode !== null)
             ? sprintf('S%02dE%02d', $season, $episode) : null;
-        // Heuristic is only SxxExx → no episode title words; don't ask the LLM
-        $codeOnly = $code !== null && preg_match('/^S\d{2}E\d{2}$/i', trim($heur));
+        // Heuristic is only SxxExx, or SxxExx · releaseGroup → no real episode title
+        $epTail = null;
+        if ($code !== null && preg_match('/^S\d{2}E\d{2}\s*[·\-–]\s*(\S+)\s*$/u', trim($heur), $m))
+            $epTail = $m[1];
+        $codeOnly = $code !== null && (
+            preg_match('/^S\d{2}E\d{2}$/i', trim($heur))
+            || ($epTail !== null && !str_contains($epTail, ' ')
+                && preg_match('/^[a-z0-9][a-z0-9._-]{1,20}$/i', $epTail))
+        );
+        if ($codeOnly && $show === '-') {
+            $guess = $showFromFilename($fn);
+            if ($guess !== null) $show = $guess;
+        }
 
         if ($codeOnly && $show !== '-') {
             $out = "$show $code";
@@ -349,12 +394,35 @@ if ($llmTitles) {
             continue;
         }
 
-        $user = "Path: $rel\nHeuristic: $heur";
-        if ($show !== '-') $user .= "\nShow: $show";
+        $user = "file: $rel\nhint: $heur";
+        if ($show !== '-') $user .= "\nshow: $show";
         $out = mwLlmChat($sysVideo, $user);
-        if ($out !== null && strcasecmp($out, 'SKIP') !== 0 && !$titleGrounded($out, $user)) {
+        if ($out !== null && strcasecmp($out, 'SKIP') !== 0 && $titleEchoesLabel($out)) {
+            echo "video #{$row['id']} | $show | $heur | $rel  →  (label-echo: $out)\n";
+            $videoFailed++;
+            continue;
+        }
+        if ($out !== null && strcasecmp($out, 'SKIP') === 0) {
+            // Dense models over-SKIP; fall back when we still have usable hint text
             if ($show !== '-' && $code !== null) {
                 $out = "$show $code";
+            } elseif ($code !== null && ($guess = $showFromFilename($fn))) {
+                $out = "$guess $code";
+            } elseif (preg_match('/[a-z]{2,}/i', $heur) && !preg_match('/^S\d{2}E\d{2}\b/i', trim($heur))) {
+                $out = $movieTitleFromHint($heur);
+            } else {
+                echo "video #{$row['id']} | $show | $heur | $rel  →  SKIP\n";
+                $videoSkipped++;
+                continue;
+            }
+        }
+        if ($out !== null && !$titleGrounded($out, $user)) {
+            if ($show !== '-' && $code !== null) {
+                $out = "$show $code";
+            } elseif ($code !== null && ($guess = $showFromFilename($fn))) {
+                $out = "$guess $code";
+            } elseif (preg_match('/[a-z]{2,}/i', $heur) && !preg_match('/^S\d{2}E\d{2}\b/i', trim($heur))) {
+                $out = $movieTitleFromHint($heur);
             } else {
                 echo "video #{$row['id']} | $show | $heur | $rel  →  (ungrounded)\n";
                 $videoFailed++;
@@ -375,10 +443,6 @@ if ($llmTitles) {
         }
         $recv = $out === null ? '(fail)' : $out;
         echo "video #{$row['id']} | $show | $heur | $rel  →  $recv\n";
-        if ($out !== null && strcasecmp($out, 'SKIP') === 0) {
-            $videoSkipped++;
-            continue;
-        }
         if ($out === null) {
             $videoFailed++;
             continue;

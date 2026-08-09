@@ -37,7 +37,7 @@ function mwLlmChat(string $system, string $user): ?string
             ['role' => 'user', 'content' => $user],
         ],
         'temperature' => 0.1,
-        'max_tokens' => 64,
+        'max_tokens' => 128,
         'stream' => false,
         'chat_template_kwargs' => ['enable_thinking' => false],
     ];
@@ -63,6 +63,6 @@ function mwLlmChat(string $system, string $user): ?string
     if (!is_string($text)) return null;
     $text = trim(preg_replace('/^```\w*\s*|\s*```$/', '', trim($text)));
     $text = preg_replace('/\s+/', ' ', trim($text, " \t\"'`"));
-    if ($text === '' || strlen($text) > 120) return null;
+    if ($text === '' || strlen($text) > 160) return null;
     return $text;
 }
