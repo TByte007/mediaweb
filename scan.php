@@ -237,13 +237,28 @@ if ($llmTitles) {
         . 'Expand codes like DS9, SGA, SGU, TNG. '
         . 'Keep the year in parentheses when known, e.g. Title (1993). '
         . 'No quality, codec, or group tags.';
-    $sysVideo = 'Extract a display title using ONLY words that already appear in the user text. '
-        . 'Do not invent words, facts, or episode names. '
-        . 'For series episodes use: Show: EpisodeName SxxExx '
-        . '(e.g. Mayday: Deadly Detour S16E05). Include the episode name when it appears in Path/Heuristic. '
-        . 'If there is a show but no episode title words, use Show SxxExx (e.g. Mayday S16E05). '
-        . 'For movies: Title (YYYY) when a year appears. '
-        . 'Ignore quality/codec/group tags. If nothing usable, reply SKIP.';
+    $sysVideo = 'Using ONLY words from the user message (Path, Heuristic, Show), output one display title. '
+        . 'Never invent words. Never reuse titles from other videos. '
+        . 'Rules: '
+        . '(1) If Heuristic or Path has an episode name (not just SxxExx / epNN), output: {Show}: {EpisodeName} {SxxExx} '
+        . 'where Show is the Show field and EpisodeName is copied from Heuristic/Path. '
+        . '(2) If there is no episode name, output: {Show} {SxxExx} with no colon. '
+        . '(3) Movies: {Title} (YYYY). '
+        . 'Ignore codec/quality/group tags. Reply SKIP if unusable.';
+
+    $titleGrounded = static function (string $reply, string $user): bool {
+        $tok = static function (string $s): array {
+            $s = strtolower(preg_replace('/[^a-z0-9]+/i', ' ', $s) ?? '');
+            return preg_split('/\s+/', trim($s), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        };
+        $allow = array_flip($tok($user));
+        foreach ($tok($reply) as $t) {
+            if (preg_match('/^(s\d{1,2}e\d{1,2}|e\d+|ep\d+|season|episode)$/', $t)) continue;
+            if (strlen($t) <= 1) continue;
+            if (!isset($allow[$t])) return false;
+        }
+        return true;
+    };
 
     $seriesUpdated = 0;
     $seriesFailed = 0;
@@ -290,8 +305,25 @@ if ($llmTitles) {
         $rel = mediaRelPath($fp) ?? $fp;
         $user = "Path: $rel\nHeuristic: $heur";
         if (!empty($row['series_title'])) $user .= "\nShow: {$row['series_title']}";
-        $out = mwLlmChat($sysVideo, $user);
         $show = !empty($row['series_title']) ? $row['series_title'] : '-';
+        $out = mwLlmChat($sysVideo, $user);
+        if ($out !== null && strcasecmp($out, 'SKIP') !== 0 && !$titleGrounded($out, $user)) {
+            // Drop invented words; fall back to Show SxxExx when we can
+            if ($row['series_title'] && $row['season'] !== null && $row['episode'] !== null) {
+                $out = sprintf('%s S%02dE%02d', $row['series_title'], (int)$row['season'], (int)$row['episode']);
+            } else {
+                echo "video #{$row['id']} | $show | $heur | $rel  →  (ungrounded)\n";
+                $videoFailed++;
+                continue;
+            }
+        }
+        // "Show: Ep04 S01E04" — number-only fake episode name
+        if ($out !== null && preg_match('/:\s*(ep|e|episode)\s*\d+\s+s\d{1,2}e\d{1,2}\s*$/i', $out)) {
+            if (preg_match('/^(.*?)\s+s(\d{1,2})e(\d{1,2})\s*$/i', $out, $m)) {
+                $showOnly = trim(preg_replace('/:\s*(ep|e|episode)\s*\d+\s*$/i', '', $m[1]) ?? $m[1]);
+                $out = sprintf('%s S%02dE%02d', $showOnly, (int)$m[2], (int)$m[3]);
+            }
+        }
         $recv = $out === null ? '(fail)' : $out;
         echo "video #{$row['id']} | $show | $heur | $rel  →  $recv\n";
         if ($out !== null && strcasecmp($out, 'SKIP') === 0) {
