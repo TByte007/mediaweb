@@ -21,12 +21,13 @@ require __DIR__ . '/series.php';
 
 $scanDirs = array_map(fn($d) => rtrim($d['fs'], '/'), MW_MEDIA_DIRS);
 $dbFile      = MW_DB;
-$verbose     = false;
-$scanOnly    = false;
-$forceRescan = false;
-$dirOverride = false;
+$verbose        = false;
+$scanOnly       = false;
+$forceRescan    = false;
+$seriesBackfill = false;
+$dirOverride    = false;
 
-$opts = getopt('', ['dir:', 'db:', 'verbose', 'scan-only', 'force-rescan', 'help']);
+$opts = getopt('', ['dir:', 'db:', 'verbose', 'scan-only', 'force-rescan', 'series-backfill', 'help']);
 
 if (isset($opts['help'])) {
     $dirList = implode("\n", array_map(fn($d) => "    - {$d['fs']}  ({$d['url']})", MW_MEDIA_DIRS));
@@ -39,6 +40,7 @@ Options:
     --verbose            Show progress as files are processed
     --scan-only          Refresh needs_fix (PTS probe + MPEG-4/Xvid in any container)
     --force-rescan       Re-run metadata extract on files already in the database
+    --series-backfill    Re-link series/seasons/episodes from paths only (no tree walk)
     --help               Show this help
 
 Scans for: mkv, mp4, avi, mov, webm, wmv, flv, m4v
@@ -63,38 +65,42 @@ Behavior:
 
     Series:
         After a normal scan (not --scan-only), link shows/seasons/episodes from
-        paths into the series table (see series.php). Incremental walk is enough.
+        paths into the series table (see series.php). Use --series-backfill to
+        re-run only that pass (no MediaInfo / no filesystem walk).
 
 USAGE;
     echo str_replace('MW_DB', MW_DB, "Default DB: MW_DB\n");
     exit(0);
 }
 
-if (!empty($opts['db']))              $dbFile      = $opts['db'];
-if (isset($opts['verbose']))          $verbose     = true;
-if (isset($opts['scan-only']))        $scanOnly    = true;
-if (isset($opts['force-rescan']))     $forceRescan = true;
+if (!empty($opts['db']))              $dbFile         = $opts['db'];
+if (isset($opts['verbose']))          $verbose        = true;
+if (isset($opts['scan-only']))        $scanOnly       = true;
+if (isset($opts['force-rescan']))     $forceRescan    = true;
+if (isset($opts['series-backfill']))  $seriesBackfill = true;
 
-if (!file_exists(MW_FFMPEG)) {
-    echo "Error: ffmpeg not found at " . MW_FFMPEG . "\n";
-    exit(1);
-}
+if (!$seriesBackfill) {
+    if (!file_exists(MW_FFMPEG)) {
+        echo "Error: ffmpeg not found at " . MW_FFMPEG . "\n";
+        exit(1);
+    }
 
-if (!empty($opts['dir'])) {
-    $scanDirs = array_map(fn($d) => rtrim(trim($d), '/'), explode(',', $opts['dir']));
-    $dirOverride = true;
-}
+    if (!empty($opts['dir'])) {
+        $scanDirs = array_map(fn($d) => rtrim(trim($d), '/'), explode(',', $opts['dir']));
+        $dirOverride = true;
+    }
 
-$scanDirs = array_values(array_filter($scanDirs, fn($d) => is_dir($d)));
-if (empty($scanDirs)) {
-    echo "Error: no valid scan directories configured/found.\n";
-    exit(1);
-}
+    $scanDirs = array_values(array_filter($scanDirs, fn($d) => is_dir($d)));
+    if (empty($scanDirs)) {
+        echo "Error: no valid scan directories configured/found.\n";
+        exit(1);
+    }
 
-exec('which mediainfo', $_, $code);
-if ($code !== 0) {
-    echo "Error: mediainfo is not installed or not in PATH\n";
-    exit(1);
+    exec('which mediainfo', $_, $code);
+    if ($code !== 0) {
+        echo "Error: mediainfo is not installed or not in PATH\n";
+        exit(1);
+    }
 }
 
 try {
@@ -181,6 +187,18 @@ if (!$hasSeriesId) $db->exec('ALTER TABLE videos ADD COLUMN series_id INTEGER;')
 if (!$hasSeason) $db->exec('ALTER TABLE videos ADD COLUMN season INTEGER;');
 if (!$hasEpisode) $db->exec('ALTER TABLE videos ADD COLUMN episode INTEGER;');
 if (!$hasEpisodeTitle) $db->exec('ALTER TABLE videos ADD COLUMN episode_title TEXT;');
+
+if ($seriesBackfill) {
+    $db->exec('BEGIN;');
+    $stats = linkSeries($db);
+    $db->exec('COMMIT;');
+    echo "Series backfill complete.\n";
+    echo "  Series:   {$stats['series']} shows\n";
+    echo "  Linked:   {$stats['linked']} episodes\n";
+    echo "  Database: $dbFile\n";
+    $db->close();
+    exit(0);
+}
 
 $stmtUpsert = $db->prepare(<<<SQL
 INSERT INTO videos

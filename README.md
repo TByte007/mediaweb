@@ -39,6 +39,7 @@ php scan.php --help
 php scan.php --verbose                 # incremental scan
 php scan.php --force-rescan            # re-extract metadata for known files
 php scan.php --scan-only --verbose     # refresh needs_fix (PTS probe)
+php scan.php --series-backfill         # re-link series/seasons/episodes only
 
 php list.php --format=HEVC
 php list.php --name="search" --limit=20

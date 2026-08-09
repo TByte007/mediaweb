@@ -17,6 +17,7 @@ Web interface at http://titan.voltage.nz/mweb/ → `web/` directory.
 php scan.php --help
 php scan.php --force-rescan              # full metadata rescan (after major changes)
 php scan.php --scan-only --verbose       # PTS probe → needs_fix (browser warning)
+php scan.php --series-backfill           # re-link series/seasons/episodes only
 php list.php --format=HEVC
 php list.php --name="search" --limit=20
 php list.php --count --format=AVC
@@ -25,7 +26,7 @@ php list.php --columns=filename,width,height,duration_secs,needs_fix
 
 **Default behavior:** Skips files already in DB (fast incremental scans). New files get MediaInfo + PTS/`needs_fix` detect. Missing files marked as `is_deleted=1`. Use `--force-rescan` to re-extract metadata; `--scan-only` to refresh `needs_fix` on candidates.
 
-**Series linking:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) parses season/episode from paths, upserts the `series` table, and sets `videos.series_id`. No MediaInfo required for that pass — an incremental scan that walks the tree is enough after deploy.
+**Series linking:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) parses season/episode from paths, upserts the `series` table, and sets `videos.series_id`. Use `php scan.php --series-backfill` to run only that pass (no tree walk / MediaInfo).
 
 ## Config (`config.php`)
 
