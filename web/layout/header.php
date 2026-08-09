@@ -117,18 +117,6 @@ main { max-width: 1400px; margin: 0 auto; padding: 24px 24px 60px; }
 }
 .card-meta { font-size: 10px; color: var(--muted); }
 .empty { text-align: center; padding: 60px 16px; color: var(--muted); }
-/* Pagination */
-.pag {
-    margin-top: 24px; display: flex; justify-content: center; align-items: center; gap: 4px;
-}
-.pag a, .pag span {
-    display: flex; align-items: center; justify-content: center;
-    min-width: 32px; height: 32px; border-radius: 6px; font-size: 12px;
-    color: var(--muted); text-decoration: none; transition: background 0.15s, color 0.15s;
-}
-.pag a:hover { background: rgba(255,255,255,0.06); color: #fff; }
-.pag a.active { background: var(--accent); color: #fff; }
-.pag .dot { padding: 0 4px; }
 /* Video page */
 .view-grid {
     display: flex; gap: 32px; margin-top: 0;
@@ -298,6 +286,148 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
         let url = base + '?view=' + card.dataset.id;
         if (p !== 'auto') url += '&player=' + encodeURIComponent(p);
         location.href = url;
+    });
+
+    // Grid markup comes after this script.
+    document.addEventListener('DOMContentLoaded', () => {
+        const grid = document.querySelector('.grid[data-pages]');
+        const more = document.querySelector('.grid-more');
+        const spacerTop = document.querySelector('.grid-spacer-top');
+        if (!grid || !more || !spacerTop) return;
+
+        const pages = parseInt(grid.dataset.pages, 10) || 1;
+        if (pages <= 1) return;
+
+        const maxPages = Math.max(1, parseInt(grid.dataset.window, 10) || 2) * 2 + 1;
+        let firstPage = parseInt(grid.dataset.page, 10) || 1;
+        let lastPage = firstPage;
+        let topH = 0;
+        let loading = false;
+        const pageH = Object.create(null);
+
+        function pageCards(p) {
+            return grid.querySelectorAll('.card[data-page="' + p + '"]');
+        }
+        function measurePage(p) {
+            const cards = pageCards(p);
+            if (!cards.length) return 0;
+            const start = cards[0].offsetTop;
+            const next = grid.querySelector('.card[data-page="' + (p + 1) + '"]');
+            if (next) return next.offsetTop - start;
+            const last = cards[cards.length - 1];
+            const gap = parseFloat(getComputedStyle(grid).rowGap) || 0;
+            return last.offsetTop + last.offsetHeight - start + gap;
+        }
+        function setTop(h) {
+            topH = Math.max(0, h);
+            spacerTop.style.height = topH + 'px';
+        }
+        function syncMore() {
+            more.hidden = lastPage >= pages;
+        }
+        function unloadTop() {
+            while (lastPage - firstPage + 1 > maxPages && firstPage < lastPage) {
+                const cards = pageCards(firstPage);
+                if (!cards.length) break;
+                const h = measurePage(firstPage);
+                pageH[firstPage] = h;
+                cards.forEach((c) => c.remove());
+                setTop(topH + h);
+                firstPage++;
+            }
+        }
+        function unloadBot() {
+            while (lastPage - firstPage + 1 > maxPages && lastPage > firstPage) {
+                const cards = pageCards(lastPage);
+                if (!cards.length) break;
+                if (cards[0].getBoundingClientRect().top < innerHeight + 400) break;
+                cards.forEach((c) => c.remove());
+                lastPage--;
+            }
+        }
+        async function fetchPage(p) {
+            const params = new URLSearchParams(location.search);
+            params.set('page', String(p));
+            params.set('partial', '1');
+            const res = await fetch(base + '?' + params.toString());
+            return (await res.text()).trim();
+        }
+        function near(el) {
+            if (el.hidden) return false;
+            const r = el.getBoundingClientRect();
+            return r.top < innerHeight + 300 && r.bottom > -300;
+        }
+        function wantNext() {
+            return lastPage < pages && near(more);
+        }
+        function wantPrev() {
+            if (firstPage <= 1 && topH <= 0) return false;
+            if (topH > 0) {
+                const edge = spacerTop.getBoundingClientRect().bottom;
+                return edge > 0 && edge < innerHeight + 300;
+            }
+            return near(spacerTop);
+        }
+        function poke() {
+            if (wantNext()) loadNext();
+            else if (wantPrev()) loadPrev();
+        }
+        async function loadNext() {
+            if (loading || !wantNext()) return;
+            loading = true;
+            try {
+                const html = await fetchPage(lastPage + 1);
+                if (!html) lastPage = pages;
+                else {
+                    grid.insertAdjacentHTML('beforeend', html);
+                    lastPage++;
+                    unloadTop();
+                }
+            } catch (_) {}
+            syncMore();
+            loading = false;
+            requestAnimationFrame(poke);
+        }
+        async function loadPrev() {
+            if (loading || !wantPrev()) return;
+            loading = true;
+            try {
+                const prevPage = firstPage - 1;
+                if (prevPage < 1) setTop(0);
+                else {
+                    const html = await fetchPage(prevPage);
+                    if (!html) { setTop(0); firstPage = 1; }
+                    else {
+                        const y = window.scrollY;
+                        grid.insertAdjacentHTML('afterbegin', html);
+                        firstPage = prevPage;
+                        const h = pageH[prevPage] != null ? pageH[prevPage] : measurePage(prevPage);
+                        delete pageH[prevPage];
+                        if (topH > 0) setTop(topH - h);
+                        else window.scrollTo(0, y + h);
+                        unloadBot();
+                    }
+                }
+            } catch (_) {}
+            syncMore();
+            loading = false;
+            requestAnimationFrame(poke);
+        }
+
+        syncMore();
+        let tick = false;
+        window.addEventListener('scroll', () => {
+            if (tick) return;
+            tick = true;
+            requestAnimationFrame(() => {
+                tick = false;
+                if (topH > 0 && grid.getBoundingClientRect().top > innerHeight)
+                    window.scrollTo(0, Math.max(0, spacerTop.offsetTop + topH - 120));
+                poke();
+            });
+        }, { passive: true });
+        new IntersectionObserver(() => poke(), { rootMargin: '300px 0px' }).observe(more);
+        poke();
     });
 })();
 </script>

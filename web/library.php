@@ -18,7 +18,7 @@ $lenFilters = [
 ];
 if (!isset($lenFilters[$len])) $len = '';
 
-$limit = 36;
+$limit = 40; // multiple of 5-column grid
 $offset = (int)(($_GET['page'] ?? 1) - 1) * $limit;
 
 if (!file_exists($dbFile)) {
@@ -83,6 +83,11 @@ $db->close();
 
 $pages = max(1, (int)ceil($total / $limit));
 $currentPage = max(1, min((int)($_GET['page'] ?? 1), $pages));
+
+if (isset($_GET['partial'])) {
+    require __DIR__ . '/layout/cards.php';
+    exit;
+}
 
 require __DIR__ . '/layout/header.php';
 require __DIR__ . '/layout/grid.php';
