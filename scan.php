@@ -50,9 +50,9 @@ Options:
     --scan-only          Refresh needs_fix (PTS probe + MPEG-4/Xvid in any container)
     --force-rescan       Re-run metadata extract on files already in the database
     --series-backfill    Re-link series/seasons/episodes, then enrich titles (no tree walk)
-    --force              With enrich: overwrite existing names / re-resolve TMDB ids
+    --force              With enrich: refresh names from cached TMDB ids; refill gaps
     --no-tmdb            Skip TMDB layer (tests; empty MW_TMDB_TOKEN also skips)
-    --no-llm             Skip LLM layer (tests; empty/down MW_LLM_URL also skips)
+    --no-llm             Skip LLM search-terms + display gap-fill (folder search only)
     --help               Show this help
 
 Scans for: mkv, mp4, avi, mov, webm, wmv, flv, m4v
@@ -64,7 +64,8 @@ Behavior:
     Default:
         Incremental scan — new files get MediaInfo + needs_fix detect; known files skipped.
         Missing files marked is_deleted=1. Then linkSeries() and enrichTitles()
-        (TMDB → LLM → thin PHP fallback). Layers skip if config empty or --no-*.
+        (dirs/files → LLM search terms → TMDB → id; LLM/PHP gap-fill).
+        Layers skip if config empty or --no-*.
 
     needs_fix (PTS / browser warning):
         Candidates: .avi, or MPEG-4 Part 2 / Xvid / DivX in any container
@@ -79,7 +80,8 @@ Behavior:
 
     --series-backfill:
         Re-run linkSeries + enrichTitles only (no MediaInfo / no filesystem walk).
-        Full name rebuild: php scan.php --series-backfill --force
+        Full name rebuild (refresh from cached ids + gaps):
+        php scan.php --series-backfill --force
 
 USAGE;
     echo str_replace('MW_DB', MW_DB, "Default DB: MW_DB\n");

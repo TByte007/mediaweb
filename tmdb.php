@@ -181,6 +181,20 @@ function mwTmdbSearchMovie(string $query, ?int $year = null): ?array
     return mwTmdbSearch('movie', $query, $year);
 }
 
+/** @return array{id: int, name: string, year: ?int}|null */
+function mwTmdbDetails(string $kind, int $id): ?array
+{
+    $j = mwTmdbGet("$kind/$id");
+    if ($j === null) return null;
+    $titleKey = $kind === 'movie' ? 'title' : 'name';
+    $dateKey = $kind === 'movie' ? 'release_date' : 'first_air_date';
+    $name = trim((string)($j[$titleKey] ?? ''));
+    if ($name === '') return null;
+    $date = (string)($j[$dateKey] ?? '');
+    $year = preg_match('/^((?:19|20)\d{2})/', $date, $m) ? (int)$m[1] : null;
+    return ['id' => $id, 'name' => $name, 'year' => $year];
+}
+
 /** @return array{name: string}|null */
 function mwTmdbTvEpisode(int $tvId, int $season, int $episode): ?array
 {

@@ -20,13 +20,13 @@ if (!defined('MW_ROOT')) {
     define('MW_BASE_URL', '/mweb/');           // Apache maps /mweb/ -> web/
     define('MW_OWNER', 'YourNick');            // Shown above the MediaWeb logo (empty to hide)
 
-    // Optional llama-server for title enrich (empty URL disables; --no-llm also skips)
+    // Optional llama-server for TMDB search terms + display gap-fill (empty URL disables; --no-llm also skips)
     define('MW_LLM_URL', '');                  // e.g. http://10.0.0.6:8192
     define('MW_LLM_MODEL', '');                // required on multi-model routers
     define('MW_LLM_TIMEOUT', 60);
     define('MW_LLM_PARALLEL', 1);              // 1=serial; dense~4; MoE~8
 
-    // Optional TMDB for title enrich (empty token disables; --no-tmdb also skips)
+    // Optional TMDB for title enrich via LLM search terms (empty token disables; --no-tmdb also skips)
     define('MW_TMDB_TOKEN', '');               // Read Access Token (Bearer), not the API Key
     define('MW_TMDB_MIN_SECS', 600);           // skip clips; 600=10m (UI Series floor); try 900 for 15m
 

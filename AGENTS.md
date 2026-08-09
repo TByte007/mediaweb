@@ -18,7 +18,7 @@ php scan.php --help
 php scan.php --force-rescan              # full metadata rescan (after major changes)
 php scan.php --scan-only --verbose       # PTS probe → needs_fix (browser warning)
 php scan.php --series-backfill           # re-link + enrich titles (no tree walk)
-php scan.php --series-backfill --force   # full display-name rebuild (TMDB → LLM → PHP)
+php scan.php --series-backfill --force   # refresh titles from cached TMDB ids + gaps
 php scan.php --series-backfill --no-tmdb --no-llm   # link + PHP fallback only (tests)
 php list.php --format=HEVC
 php list.php --name="search" --limit=20
@@ -28,7 +28,7 @@ php list.php --columns=filename,width,height,duration_secs,needs_fix
 
 **Default behavior:** Skips files already in DB (fast incremental scans). New files get MediaInfo + PTS/`needs_fix` detect. Missing files marked as `is_deleted=1`. Use `--force-rescan` to re-extract metadata; `--scan-only` to refresh `needs_fix` on candidates (no link/enrich).
 
-**Series linking + title enrich:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) then `enrichTitles()` in [`titles.php`](titles.php): **TMDB → LLM → thin PHP fallback**. Layers run when configured; skip with empty `MW_TMDB_TOKEN` / `MW_LLM_URL`, unreachable llama, or `--no-tmdb` / `--no-llm`. `--force` overwrites existing `videos.name` / re-resolves TMDB ids. Web UI prefers `videos.name`; never calls TMDB or the LLM on page views. Use `php scan.php --series-backfill` to relink + enrich without a MediaInfo walk.
+**Series linking + title enrich:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) then `enrichTitles()` in [`titles.php`](titles.php): **dirs/files → (LLM search terms) → TMDB → store id + canonical title**, then LLM/PHP gap-fill for misses. `linkSeries` does not overwrite `series.title` when `tmdb_id` is set. Layers run when configured; skip with empty `MW_TMDB_TOKEN` / `MW_LLM_URL`, unreachable llama, or `--no-tmdb` / `--no-llm` (folder/heur search only without LLM). `--force` refreshes titles from cached TMDB ids (does not re-search). Web UI prefers `videos.name`; never calls TMDB or the LLM on page views. Use `php scan.php --series-backfill` to relink + enrich without a MediaInfo walk.
 
 ## Config (`config.php`)
 

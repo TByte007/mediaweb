@@ -245,7 +245,10 @@ function linkSeries(\SQLite3 $db): array
         'INSERT INTO series (root_key, title, cover_video_id, updated_at)
          VALUES (?, ?, ?, datetime(\'now\'))
          ON CONFLICT(root_key) DO UPDATE SET
-           title = excluded.title,
+           title = CASE
+             WHEN series.tmdb_id IS NOT NULL THEN series.title
+             ELSE excluded.title
+           END,
            cover_video_id = excluded.cover_video_id,
            updated_at = datetime(\'now\')'
     );

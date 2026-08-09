@@ -49,7 +49,7 @@ php list.php --count --format=AVC
 php list.php --columns=filename,width,height,duration_secs,needs_fix
 ```
 
-**Default scan:** skip files already in the DB; probe new ones; mark missing rows `is_deleted=1` (hidden from the library, kept for play counts). Then `linkSeries()` + `enrichTitles()` (TMDB → LLM → thin PHP fallback). Cron: `php scan.php` is enough when keys are set; use `--series-backfill --force` for a full name rebuild.
+**Default scan:** skip files already in the DB; probe new ones; mark missing rows `is_deleted=1` (hidden from the library, kept for play counts). Then `linkSeries()` + `enrichTitles()` (dirs/files → LLM search terms → TMDB → id; LLM/PHP gap-fill). Cron: `php scan.php` is enough when keys are set; use `--series-backfill --force` to refresh names from cached TMDB ids.
 
 ## Config
 
@@ -70,7 +70,7 @@ Shared constants live in `config.php` (gitignored). Start from `config.example.p
 
 Each storage entry is independent: `[ 'fs' => '/path/on/disk', 'url' => '/apache_prefix/' ]`. Only the URL prefixes need to be public.
 
-Display titles: MediaInfo stays in `videos.title`; enrich writes `videos.name` / `series.title` (UI prefers `name`). Never call TMDB or the LLM from page views. Test overrides: `--no-tmdb` / `--no-llm`.
+Display titles: MediaInfo stays in `videos.title`; enrich discovers TMDB ids from folder/filename (LLM proposes search terms), then writes `videos.name` / `series.title` from TMDB (UI prefers `name`). Never call TMDB or the LLM from page views. Test overrides: `--no-tmdb` / `--no-llm`.
 
 ## Browser playback and `needs_fix`
 
