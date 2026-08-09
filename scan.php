@@ -19,6 +19,8 @@ require __DIR__ . '/config.php';
 require __DIR__ . '/web/layout/helpers.php';
 require __DIR__ . '/series.php';
 require __DIR__ . '/llm.php';
+require __DIR__ . '/tmdb.php';
+require __DIR__ . '/titles.php';
 
 $scanDirs = array_map(fn($d) => rtrim($d['fs'], '/'), MW_MEDIA_DIRS);
 $dbFile         = MW_DB;
@@ -26,13 +28,14 @@ $verbose        = false;
 $scanOnly       = false;
 $forceRescan    = false;
 $seriesBackfill = false;
-$llmTitles      = false;
-$forceLlm       = false;
+$forceNames     = false;
+$useTmdb        = true;
+$useLlm         = true;
 $dirOverride    = false;
 
 $opts = getopt('', [
     'dir:', 'db:', 'verbose', 'scan-only', 'force-rescan', 'series-backfill',
-    'llm-titles', 'force', 'help',
+    'force', 'no-tmdb', 'no-llm', 'help',
 ]);
 
 if (isset($opts['help'])) {
@@ -46,9 +49,10 @@ Options:
     --verbose            Show progress as files are processed
     --scan-only          Refresh needs_fix (PTS probe + MPEG-4/Xvid in any container)
     --force-rescan       Re-run metadata extract on files already in the database
-    --series-backfill    Re-link series/seasons/episodes from paths only (no tree walk)
-    --llm-titles         Polish series.title + videos.name via llama-server (MW_LLM_URL)
-    --force              With --llm-titles: overwrite existing names
+    --series-backfill    Re-link series/seasons/episodes, then enrich titles (no tree walk)
+    --force              With enrich: overwrite existing names / re-resolve TMDB ids
+    --no-tmdb            Skip TMDB layer (tests; empty MW_TMDB_TOKEN also skips)
+    --no-llm             Skip LLM layer (tests; empty/down MW_LLM_URL also skips)
     --help               Show this help
 
 Scans for: mkv, mp4, avi, mov, webm, wmv, flv, m4v
@@ -59,7 +63,8 @@ $dirList
 Behavior:
     Default:
         Incremental scan — new files get MediaInfo + needs_fix detect; known files skipped.
-        Missing files marked is_deleted=1.
+        Missing files marked is_deleted=1. Then linkSeries() and enrichTitles()
+        (TMDB → LLM → thin PHP fallback). Layers skip if config empty or --no-*.
 
     needs_fix (PTS / browser warning):
         Candidates: .avi, or MPEG-4 Part 2 / Xvid / DivX in any container
@@ -70,16 +75,11 @@ Behavior:
 
     --scan-only:
         Re-check candidates above; UPDATE needs_fix from the PTS tests.
+        No series link / no title enrich.
 
-    Series:
-        After a normal scan (not --scan-only), link shows/seasons/episodes from
-        paths into the series table (see series.php). Use --series-backfill to
-        re-run only that pass (no MediaInfo / no filesystem walk).
-
-    --llm-titles:
-        Requires MW_LLM_URL (llama-server). Updates series.title and fills videos.name
-        (unnamed rows, or all with --force). Heuristics used if LLM is off/down.
-        Thinking disabled. Run after --series-backfill when polishing a library.
+    --series-backfill:
+        Re-run linkSeries + enrichTitles only (no MediaInfo / no filesystem walk).
+        Full name rebuild: php scan.php --series-backfill --force
 
 USAGE;
     echo str_replace('MW_DB', MW_DB, "Default DB: MW_DB\n");
@@ -91,10 +91,11 @@ if (isset($opts['verbose']))          $verbose        = true;
 if (isset($opts['scan-only']))        $scanOnly       = true;
 if (isset($opts['force-rescan']))     $forceRescan    = true;
 if (isset($opts['series-backfill']))  $seriesBackfill = true;
-if (isset($opts['llm-titles']))       $llmTitles      = true;
-if (isset($opts['force']))            $forceLlm       = true;
+if (isset($opts['force']))            $forceNames     = true;
+if (isset($opts['no-tmdb']))          $useTmdb        = false;
+if (isset($opts['no-llm']))           $useLlm         = false;
 
-$skipMediaTools = $seriesBackfill || $llmTitles;
+$skipMediaTools = $seriesBackfill;
 if (!$skipMediaTools) {
     if (!file_exists(MW_FFMPEG)) {
         echo "Error: ffmpeg not found at " . MW_FFMPEG . "\n";
@@ -189,6 +190,7 @@ $hasSeason = false;
 $hasEpisode = false;
 $hasEpisodeTitle = false;
 $hasName = false;
+$hasVideoTmdbId = false;
 while ($col = $result->fetchArray(2)) {
     if (!empty($col) && isset($col[1])) {
         if ($col[1] === 'needs_fix') $hasNeedsFix = true;
@@ -198,6 +200,7 @@ while ($col = $result->fetchArray(2)) {
         if ($col[1] === 'episode') $hasEpisode = true;
         if ($col[1] === 'episode_title') $hasEpisodeTitle = true;
         if ($col[1] === 'name') $hasName = true;
+        if ($col[1] === 'tmdb_id') $hasVideoTmdbId = true;
     }
 }
 if (!$hasNeedsFix) $db->exec('ALTER TABLE videos ADD COLUMN needs_fix INTEGER DEFAULT 0;');
@@ -207,6 +210,14 @@ if (!$hasSeason) $db->exec('ALTER TABLE videos ADD COLUMN season INTEGER;');
 if (!$hasEpisode) $db->exec('ALTER TABLE videos ADD COLUMN episode INTEGER;');
 if (!$hasEpisodeTitle) $db->exec('ALTER TABLE videos ADD COLUMN episode_title TEXT;');
 if (!$hasName) $db->exec('ALTER TABLE videos ADD COLUMN name TEXT;');
+if (!$hasVideoTmdbId) $db->exec('ALTER TABLE videos ADD COLUMN tmdb_id INTEGER;');
+
+$hasSeriesTmdbId = false;
+$rsSer = $db->query('PRAGMA table_info(series);');
+while ($col = $rsSer->fetchArray(2)) {
+    if (!empty($col) && isset($col[1]) && $col[1] === 'tmdb_id') $hasSeriesTmdbId = true;
+}
+if (!$hasSeriesTmdbId) $db->exec('ALTER TABLE series ADD COLUMN tmdb_id INTEGER;');
 
 if ($seriesBackfill) {
     $db->exec('BEGIN;');
@@ -215,305 +226,9 @@ if ($seriesBackfill) {
     echo "Series backfill complete.\n";
     echo "  Series:   {$stats['series']} shows\n";
     echo "  Linked:   {$stats['linked']} episodes\n";
+    $enrich = enrichTitles($db, $forceNames, $useTmdb, $useLlm, $verbose);
+    enrichTitlesPrintSummary($enrich);
     echo "  Database: $dbFile\n";
-    $db->close();
-    exit(0);
-}
-
-if ($llmTitles) {
-    if (!mwLlmEnabled()) {
-        echo "LLM titles skipped: MW_LLM_URL is empty (heuristics only).\n";
-        $db->close();
-        exit(0);
-    }
-    if (!mwLlmAvailable()) {
-        echo "LLM titles skipped: llama-server not reachable at " . MW_LLM_URL . "\n";
-        $db->close();
-        exit(0);
-    }
-
-    $sysSeries = 'You output canonical TV show display titles for a media library. '
-        . 'Reply with exactly one line: {Show Name} (YYYY) '
-        . 'YYYY = original first-air / premiere year of the series (not a season, not a rip). '
-        . 'Rules: '
-        . '- Expand folder codes: DS9→Star Trek: Deep Space Nine, TNG→Star Trek: The Next Generation, '
-        . 'SGA→Stargate Atlantis, SGU→Stargate Universe, SG-1 stays Stargate SG-1. '
-        . '- Keep the fullest recognizable show name from Folder/Current title '
-        . '(e.g. Mayday: Air Crash Investigation — not Mayday alone; Black Files: Declassified when present). '
-        . '- Prefer a 19xx/20xx year found in the folder when it is clearly the show year. '
-        . '- Otherwise use the standard premiere year you know for that show. '
-        . '- Keep a year already present in Current title. '
-        . '- Strip quality/codec/group/season pack junk only. '
-        . '- Never reply without (YYYY).';
-    $sysVideo = 'Using ONLY words from the user message (file, hint, show), output one display title. '
-        . 'Never invent words. Never reuse titles from other videos. '
-        . 'Never echo field labels (file/hint/show) in the reply. '
-        . 'Keep abbreviations as written (Vol stays Vol, not Volume). '
-        . 'Tags like KORSUB, HDRip, XviD, 2hd, EVO are NOT titles — ignore them. '
-        . 'Rules: '
-        . '(1) If hint or file has a real episode name (not just SxxExx / epNN / a release group), '
-        . 'output: {show}: {EpisodeName} {SxxExx}. '
-        . '(2) If there is only SxxExx (or SxxExx plus a release group like 2hd), output: {show} {SxxExx}. '
-        . 'If show is missing, take the show name from the file (words before SxxExx). '
-        . '(3) For movies, keep the year in parentheses when known, e.g. Title (1993). '
-        . 'Always use parentheses around the year: {Title} (YYYY) — never Title YYYY. '
-        . '(4) Do not repeat the episode code. Keep the full episode name — do not truncate. '
-        . 'Prefer a best-effort title over SKIP. Reply SKIP only if there are truly no title words.';
-
-    $titleGrounded = static function (string $reply, string $user): bool {
-        $tok = static function (string $s): array {
-            $s = strtolower(preg_replace('/[^a-z0-9]+/i', ' ', $s) ?? '');
-            $parts = preg_split('/\s+/', trim($s), -1, PREG_SPLIT_NO_EMPTY) ?: [];
-            // Vol ↔ Volume so "Vol 2" inputs accept "Volume 2" replies and vice versa
-            $out = [];
-            foreach ($parts as $t) {
-                $out[] = $t;
-                if ($t === 'vol') $out[] = 'volume';
-                if ($t === 'volume') $out[] = 'vol';
-            }
-            return $out;
-        };
-        $allow = array_flip($tok($user));
-        foreach ($tok($reply) as $t) {
-            if (preg_match('/^(s\d{1,2}e\d{1,2}|e\d+|ep\d+|season|episode|file|hint|show)$/', $t)) continue;
-            if (strlen($t) <= 1) continue;
-            if (!isset($allow[$t])) return false;
-        }
-        return true;
-    };
-    $titleEchoesLabel = static function (string $reply): bool {
-        return (bool)preg_match('/^(path|heuristic|show|file|hint)\s*:/i', $reply)
-            || (bool)preg_match('/^(path|heuristic|file|hint)$/i', $reply);
-    };
-    $movieTitleFromHint = static function (string $heur): string {
-        $h = preg_replace(
-            '/\b(korsub|hdrip|bluray|blu-?ray|webrip|web-?dl|hdtv|dvdrip|xvid|x264|x265|hevc|ac3|aac|dts|evo|vain|2hd|rarbg|yify)\b/i',
-            ' ',
-            $heur
-        );
-        $h = preg_replace('/\s+/', ' ', trim((string)$h));
-        if (preg_match('/^(.*?)(?:\s+)((?:19|20)\d{2})$/', $h, $m))
-            return trim($m[1]) . ' (' . $m[2] . ')';
-        return $h;
-    };
-    $showFromFilename = static function (string $fn): ?string {
-        $base = pathinfo($fn, PATHINFO_FILENAME);
-        if (!preg_match('/^(.+?)[.\-_ ]s\d{1,2}e\d{1,2}\b/i', $base, $m)) return null;
-        $s = prettifyFilename($m[1]);
-        return $s !== '' ? $s : null;
-    };
-
-    // Long LLM waits must not hold an open SELECT cursor (blocks other writers → "database is locked").
-    $db->busyTimeout(60000);
-    // SQLite result codes: https://sqlite.org/rescode.html (not exposed by PHP's SQLite3 ext)
-    if (!defined('SQLITE_BUSY')) define('SQLITE_BUSY', 5);
-    if (!defined('SQLITE_LOCKED')) define('SQLITE_LOCKED', 6);
-    $dbExec = static function (\SQLite3Stmt $st) use ($db): bool {
-        for ($i = 0; $i < 20; $i++) {
-            if ($st->execute() !== false) return true;
-            $primary = $db->lastErrorCode() & 0xff;
-            if ($primary !== SQLITE_BUSY && $primary !== SQLITE_LOCKED) return false;
-            usleep(50_000 * min($i + 1, 10));
-            $st->reset();
-        }
-        return false;
-    };
-
-    $seriesUpdated = 0;
-    $seriesFailed = 0;
-    $seriesRows = [];
-    $rs = $db->query('SELECT id, root_key, title FROM series ORDER BY id');
-    while ($row = $rs->fetchArray(SQLITE3_ASSOC)) $seriesRows[] = $row;
-    $rs->finalize();
-    $stmtSer = $db->prepare('UPDATE series SET title = ?, updated_at = datetime(\'now\') WHERE id = ?');
-    foreach ($seriesRows as $row) {
-        $top = basename(str_replace('\\', '/', (string)$row['root_key']));
-        $user = "Folder: $top\nCurrent title: {$row['title']}";
-        $out = mwLlmChat($sysSeries, $user);
-        // Soft retry — model sometimes drops (YYYY) despite the system prompt
-        if ($out !== null && !preg_match('/\((?:19|20)\d{2}\)\s*$/', $out)) {
-            $retry = mwLlmChat($sysSeries, $user . "\nReminder: your reply must end with (YYYY).");
-            if ($retry !== null) $out = $retry;
-        }
-        echo "series #{$row['id']} | $top | {$row['title']}  →  "
-            . ($out === null ? '(fail)' : $out) . "\n";
-        if ($out === null) {
-            $seriesFailed++;
-            continue;
-        }
-        $stmtSer->reset();
-        $stmtSer->bindValue(1, $out);
-        $stmtSer->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
-        if (!$dbExec($stmtSer)) {
-            echo "  (db locked, series #{$row['id']} not saved)\n";
-            $seriesFailed++;
-            continue;
-        }
-        $seriesUpdated++;
-    }
-
-    $videoNamed = 0;
-    $videoSkipped = 0;
-    $videoFailed = 0;
-    $sql = 'SELECT v.id, v.filepath, v.filename, v.title, v.series_id, v.season, v.episode,
-                   v.episode_title, s.title AS series_title
-            FROM videos v
-            LEFT JOIN series s ON s.id = v.series_id
-            WHERE v.is_deleted = 0';
-    if (!$forceLlm) $sql .= ' AND (v.name IS NULL OR v.name = \'\')';
-    $sql .= ' ORDER BY v.id';
-    $videoRows = [];
-    $rv = $db->query($sql);
-    while ($row = $rv->fetchArray(SQLITE3_ASSOC)) $videoRows[] = $row;
-    $rv->finalize();
-    $stmtName = $db->prepare('UPDATE videos SET name = ?, updated_at = datetime(\'now\') WHERE id = ?');
-
-    $jobs = [];
-    foreach ($videoRows as $row) {
-        $fn = (string)$row['filename'];
-        $fp = (string)$row['filepath'];
-        $season = $row['season'] !== null ? (int)$row['season'] : null;
-        $episode = $row['episode'] !== null ? (int)$row['episode'] : null;
-        $heur = episodePrettyTitle(
-            $fn, $row['title'], $fp, $season, $episode, $row['episode_title']
-        );
-        $rel = mediaRelPath($fp) ?? $fp;
-        $show = !empty($row['series_title']) ? (string)$row['series_title'] : '-';
-        $code = ($season !== null && $episode !== null)
-            ? sprintf('S%02dE%02d', $season, $episode) : null;
-        static $releaseToken = null;
-        if ($releaseToken === null) {
-            $releaseToken = static function (string $t): bool {
-                static $noise = [
-                    'korsub' => 1, 'hdrip' => 1, 'bluray' => 1, 'webrip' => 1, 'webdl' => 1,
-                    'hdtv' => 1, 'pdtv' => 1, 'dvdrip' => 1, 'bdrip' => 1, 'brrip' => 1,
-                    'xvid' => 1, 'x264' => 1, 'x265' => 1, 'h264' => 1, 'h265' => 1, 'hevc' => 1,
-                    'ac3' => 1, 'aac' => 1, 'dts' => 1, 'evo' => 1, 'vain' => 1, '2hd' => 1,
-                    'rarbg' => 1, 'yify' => 1, 'proper' => 1, 'repack' => 1, 'internal' => 1,
-                ];
-                $l = strtolower($t);
-                return isset($noise[$l]) || (bool)preg_match('/^\d{3,4}p$/', $l);
-            };
-        }
-        $epName = trim((string)($row['episode_title'] ?? ''));
-        if ($epName === '' && $code !== null
-            && preg_match('/^S\d{2}E\d{2}\s*[·\-–]\s*(.+)$/u', trim($heur), $m))
-            $epName = trim($m[1]);
-        $releaseOnly = $epName !== '' && !str_contains($epName, ' ') && $releaseToken($epName);
-        $codeOnly = $code !== null && (
-            preg_match('/^S\d{2}E\d{2}$/i', trim($heur)) || $releaseOnly
-        );
-        $namedEp = $code !== null && $epName !== '' && !$releaseOnly;
-        if (($codeOnly || $namedEp) && $show === '-') {
-            $guess = $showFromFilename($fn);
-            if ($guess !== null) $show = $guess;
-        }
-
-        if (($codeOnly || $namedEp) && $show !== '-') {
-            $out = $namedEp ? "$show: $epName $code" : "$show $code";
-            echo "video #{$row['id']} | $show | $heur | $rel  →  $out (no-llm)\n";
-            $stmtName->reset();
-            $stmtName->bindValue(1, $out);
-            $stmtName->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
-            if ($dbExec($stmtName)) $videoNamed++;
-            else {
-                echo "  (db locked, not saved)\n";
-                $videoFailed++;
-            }
-            continue;
-        }
-
-        $user = "file: $rel\nhint: $heur";
-        if ($show !== '-') $user .= "\nshow: $show";
-        $jobs[] = [
-            'id' => (int)$row['id'],
-            'fn' => $fn,
-            'rel' => $rel,
-            'heur' => $heur,
-            'show' => $show,
-            'code' => $code,
-            'user' => $user,
-        ];
-    }
-
-    $fallbackTitle = static function (
-        string $show,
-        ?string $code,
-        string $fn,
-        string $heur
-    ) use ($showFromFilename, $movieTitleFromHint): ?string {
-        if ($show !== '-' && $code !== null) return "$show $code";
-        if ($code !== null && ($guess = $showFromFilename($fn))) return "$guess $code";
-        if (preg_match('/[a-z]{2,}/i', $heur) && !preg_match('/^S\d{2}E\d{2}\b/i', trim($heur)))
-            return $movieTitleFromHint($heur);
-        return null;
-    };
-
-    if ($jobs !== []) {
-        echo 'LLM video jobs: ' . count($jobs) . ' (parallel=' . mwLlmParallel() . ")\n";
-        $outs = mwLlmChatMany($sysVideo, array_column($jobs, 'user'));
-        foreach ($jobs as $j => $job) {
-            $id = $job['id'];
-            $fn = $job['fn'];
-            $rel = $job['rel'];
-            $heur = $job['heur'];
-            $show = $job['show'];
-            $code = $job['code'];
-            $user = $job['user'];
-            $out = $outs[$j] ?? null;
-
-            if ($out !== null && strcasecmp($out, 'SKIP') !== 0 && $titleEchoesLabel($out)) {
-                echo "video #$id | $show | $heur | $rel  →  (label-echo: $out)\n";
-                $videoFailed++;
-                continue;
-            }
-            if ($out !== null && strcasecmp($out, 'SKIP') === 0) {
-                $out = $fallbackTitle($show, $code, $fn, $heur);
-                if ($out === null) {
-                    echo "video #$id | $show | $heur | $rel  →  SKIP\n";
-                    $videoSkipped++;
-                    continue;
-                }
-            }
-            if ($out !== null && !$titleGrounded($out, $user)) {
-                $out = $fallbackTitle($show, $code, $fn, $heur);
-                if ($out === null) {
-                    echo "video #$id | $show | $heur | $rel  →  (ungrounded)\n";
-                    $videoFailed++;
-                    continue;
-                }
-            }
-            if ($out !== null && preg_match('/:\s*(ep|e|episode)\s*\d+\s+s\d{1,2}e\d{1,2}\s*$/i', $out)) {
-                if (preg_match('/^(.*?)\s+s(\d{1,2})e(\d{1,2})\s*$/i', $out, $m)) {
-                    $showOnly = trim(preg_replace('/:\s*(ep|e|episode)\s*\d+\s*$/i', '', $m[1]) ?? $m[1]);
-                    $out = sprintf('%s S%02dE%02d', $showOnly, (int)$m[2], (int)$m[3]);
-                }
-            }
-            if ($out !== null && $code !== null && $show !== '-'
-                && !preg_match('/S\d{1,2}E\d{1,2}\s*$/i', $out)) {
-                $out = rtrim($out) . " $code";
-            }
-            echo "video #$id | $show | $heur | $rel  →  " . ($out ?? '(fail)') . "\n";
-            if ($out === null) {
-                $videoFailed++;
-                continue;
-            }
-            $stmtName->reset();
-            $stmtName->bindValue(1, $out);
-            $stmtName->bindValue(2, $id, SQLITE3_INTEGER);
-            if (!$dbExec($stmtName)) {
-                echo "  (db locked, not saved)\n";
-                $videoFailed++;
-                continue;
-            }
-            $videoNamed++;
-        }
-    }
-
-    echo "LLM titles complete.\n";
-    echo "  Series updated: $seriesUpdated (failed: $seriesFailed)\n";
-    echo "  Videos named:   $videoNamed (skipped: $videoSkipped, failed: $videoFailed)\n";
-    echo "  Database:       $dbFile\n";
     $db->close();
     exit(0);
 }
@@ -885,10 +600,12 @@ if (!$dirOverride && !empty($knownFiles) && !$scanOnly) {
 }
 
 $seriesStats = ['series' => 0, 'linked' => 0];
+$enrich = null;
 if (!$scanOnly) {
     $db->exec('BEGIN;');
     $seriesStats = linkSeries($db);
     $db->exec('COMMIT;');
+    $enrich = enrichTitles($db, $forceNames, $useTmdb, $useLlm, $verbose);
 }
 
 echo "\nScan complete.\n";
@@ -899,6 +616,7 @@ echo "  Flagged:   $flagged (needs_fix / PTS browser warning)\n";
 echo "  Errors:    $errors\n";
 if (!$scanOnly) {
     echo "  Series:    {$seriesStats['series']} shows, {$seriesStats['linked']} episodes linked\n";
+    if ($enrich !== null) enrichTitlesPrintSummary($enrich);
 }
 echo "  Database:  $dbFile\n";
 

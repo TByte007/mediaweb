@@ -36,12 +36,12 @@ Ensure `web/covers/` is writable by the web user.
 
 ```bash
 php scan.php --help
-php scan.php --verbose                 # incremental scan
+php scan.php --verbose                 # incremental scan + link + enrich titles
 php scan.php --force-rescan            # re-extract metadata for known files
 php scan.php --scan-only --verbose     # refresh needs_fix (PTS probe)
-php scan.php --series-backfill         # re-link series/seasons/episodes only
-php scan.php --llm-titles              # polish series.title + videos.name (needs MW_LLM_*)
-php scan.php --llm-titles --force      # overwrite existing LLM display names
+php scan.php --series-backfill         # re-link + enrich (no tree walk)
+php scan.php --series-backfill --force # full display-name rebuild
+php scan.php --no-tmdb --no-llm        # enrich without remote layers (tests)
 
 php list.php --format=HEVC
 php list.php --name="search" --limit=20
@@ -49,7 +49,7 @@ php list.php --count --format=AVC
 php list.php --columns=filename,width,height,duration_secs,needs_fix
 ```
 
-**Default scan:** skip files already in the DB; probe new ones; mark missing rows `is_deleted=1` (hidden from the library, kept for play counts). End of scan also links series/seasons/episodes from directory layout (see `series.php`).
+**Default scan:** skip files already in the DB; probe new ones; mark missing rows `is_deleted=1` (hidden from the library, kept for play counts). Then `linkSeries()` + `enrichTitles()` (TMDB → LLM → thin PHP fallback). Cron: `php scan.php` is enough when keys are set; use `--series-backfill --force` for a full name rebuild.
 
 ## Config
 
@@ -61,14 +61,16 @@ Shared constants live in `config.php` (gitignored). Start from `config.example.p
 | `MW_BASE_URL` | Web app URL prefix (e.g. `/mweb/`) |
 | `MW_FFMPEG` / `MW_FFPROBE` | Absolute binary paths |
 | `MW_MEDIA_DIRS` | Media roots: `[ 'fs' => path, 'url' => apache_prefix ]` |
-| `MW_LLM_URL` | Optional llama-server base URL for `--llm-titles` (empty disables) |
+| `MW_TMDB_TOKEN` | Optional TMDB Read Access Token for enrich (empty disables) |
+| `MW_TMDB_MIN_SECS` | Min `duration_secs` for TMDB video queries (default 600 = 10m) |
+| `MW_LLM_URL` | Optional llama-server base URL for enrich (empty disables) |
 | `MW_LLM_MODEL` | Model id (required on multi-model routers) |
 | `MW_LLM_TIMEOUT` | Chat request timeout seconds (default 60) |
-| `MW_LLM_PARALLEL` | Concurrent `--llm-titles` chat requests (1=serial; dense~4; MoE~8) |
+| `MW_LLM_PARALLEL` | Concurrent LLM chat requests (1=serial; dense~4; MoE~8) |
 
 Each storage entry is independent: `[ 'fs' => '/path/on/disk', 'url' => '/apache_prefix/' ]`. Only the URL prefixes need to be public.
 
-Display titles: MediaInfo stays in `videos.title`; optional LLM/heuristic display name is `videos.name` (UI prefers it). Series show title is `series.title`.
+Display titles: MediaInfo stays in `videos.title`; enrich writes `videos.name` / `series.title` (UI prefers `name`). Never call TMDB or the LLM from page views. Test overrides: `--no-tmdb` / `--no-llm`.
 
 ## Browser playback and `needs_fix`
 

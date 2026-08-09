@@ -17,20 +17,18 @@ Web interface at http://titan.voltage.nz/mweb/ → `web/` directory.
 php scan.php --help
 php scan.php --force-rescan              # full metadata rescan (after major changes)
 php scan.php --scan-only --verbose       # PTS probe → needs_fix (browser warning)
-php scan.php --series-backfill           # re-link series/seasons/episodes only
-php scan.php --llm-titles                # polish series.title + videos.name (llama-server)
-php scan.php --llm-titles --force        # overwrite existing LLM names on all living rows
+php scan.php --series-backfill           # re-link + enrich titles (no tree walk)
+php scan.php --series-backfill --force   # full display-name rebuild (TMDB → LLM → PHP)
+php scan.php --series-backfill --no-tmdb --no-llm   # link + PHP fallback only (tests)
 php list.php --format=HEVC
 php list.php --name="search" --limit=20
 php list.php --count --format=AVC
 php list.php --columns=filename,width,height,duration_secs,needs_fix
 ```
 
-**Default behavior:** Skips files already in DB (fast incremental scans). New files get MediaInfo + PTS/`needs_fix` detect. Missing files marked as `is_deleted=1`. Use `--force-rescan` to re-extract metadata; `--scan-only` to refresh `needs_fix` on candidates.
+**Default behavior:** Skips files already in DB (fast incremental scans). New files get MediaInfo + PTS/`needs_fix` detect. Missing files marked as `is_deleted=1`. Use `--force-rescan` to re-extract metadata; `--scan-only` to refresh `needs_fix` on candidates (no link/enrich).
 
-**Series linking:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) parses season/episode from paths, upserts the `series` table, and sets `videos.series_id`. Use `php scan.php --series-backfill` to run only that pass (no tree walk / MediaInfo).
-
-**LLM display names:** Optional. Set `MW_LLM_URL` (and `MW_LLM_MODEL` on multi-model routers). `php scan.php --llm-titles` calls llama-server chat with thinking disabled, updates `series.title`, and fills `videos.name` for rows that still need a name (`--force` = overwrite all living rows). Web UI prefers `videos.name` when set; never calls the LLM on page views. Empty/unreachable URL → heuristics only (`prettifyFilename`, including DS9/SGA-style acronyms). Typical order: `--series-backfill` then `--llm-titles`.
+**Series linking + title enrich:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) then `enrichTitles()` in [`titles.php`](titles.php): **TMDB → LLM → thin PHP fallback**. Layers run when configured; skip with empty `MW_TMDB_TOKEN` / `MW_LLM_URL`, unreachable llama, or `--no-tmdb` / `--no-llm`. `--force` overwrites existing `videos.name` / re-resolves TMDB ids. Web UI prefers `videos.name`; never calls TMDB or the LLM on page views. Use `php scan.php --series-backfill` to relink + enrich without a MediaInfo walk.
 
 ## Config (`config.php`)
 
@@ -38,7 +36,8 @@ php list.php --columns=filename,width,height,duration_secs,needs_fix
 - `MW_BASE_URL`: `/mweb/`
 - `MW_FFMPEG`: `/usr/local/bin/ffmpeg` (not on www's PATH)
 - `MW_MEDIA_DIRS`: media roots `[ ['fs' => filesystem_path, 'url' => apache_url_prefix], ... ]`
-- `MW_LLM_URL` / `MW_LLM_MODEL` / `MW_LLM_TIMEOUT` / `MW_LLM_PARALLEL`: optional llama-server for `--llm-titles` (empty URL disables; parallel = concurrent chat requests, 1=serial)
+- `MW_TMDB_TOKEN` / `MW_TMDB_MIN_SECS`: optional TMDB in enrich (empty token disables; min secs default 600)
+- `MW_LLM_URL` / `MW_LLM_MODEL` / `MW_LLM_TIMEOUT` / `MW_LLM_PARALLEL`: optional llama-server in enrich (empty URL disables; parallel = concurrent chat requests, 1=serial)
 
   Example:
   ```php
