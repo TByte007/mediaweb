@@ -243,7 +243,8 @@ if ($llmTitles) {
         . '(1) If Heuristic or Path has an episode name (not just SxxExx / epNN), output: {Show}: {EpisodeName} {SxxExx} '
         . 'where Show is the Show field and EpisodeName is copied from Heuristic/Path. '
         . '(2) If there is no episode name, output: {Show} {SxxExx} with no colon. '
-        . '(3) Movies: {Title} (YYYY). '
+        . '(3) For movies, keep the year in parentheses when known, e.g. Title (1993) : {Title} (YYYY). '
+        . '(4) Be sure not to repeat the episode name in the output. '
         . 'Ignore codec/quality/group tags. Reply SKIP if unusable.';
 
     $titleGrounded = static function (string $reply, string $user): bool {
@@ -260,11 +261,30 @@ if ($llmTitles) {
         return true;
     };
 
+    // Long LLM waits must not hold an open SELECT cursor (blocks other writers → "database is locked").
+    $db->busyTimeout(60000);
+    // SQLite result codes: https://sqlite.org/rescode.html (not exposed by PHP's SQLite3 ext)
+    if (!defined('SQLITE_BUSY')) define('SQLITE_BUSY', 5);
+    if (!defined('SQLITE_LOCKED')) define('SQLITE_LOCKED', 6);
+    $dbExec = static function (\SQLite3Stmt $st) use ($db): bool {
+        for ($i = 0; $i < 20; $i++) {
+            if ($st->execute() !== false) return true;
+            $primary = $db->lastErrorCode() & 0xff;
+            if ($primary !== SQLITE_BUSY && $primary !== SQLITE_LOCKED) return false;
+            usleep(50_000 * min($i + 1, 10));
+            $st->reset();
+        }
+        return false;
+    };
+
     $seriesUpdated = 0;
     $seriesFailed = 0;
+    $seriesRows = [];
     $rs = $db->query('SELECT id, root_key, title FROM series ORDER BY id');
+    while ($row = $rs->fetchArray(SQLITE3_ASSOC)) $seriesRows[] = $row;
+    $rs->finalize();
     $stmtSer = $db->prepare('UPDATE series SET title = ?, updated_at = datetime(\'now\') WHERE id = ?');
-    while ($row = $rs->fetchArray(SQLITE3_ASSOC)) {
+    foreach ($seriesRows as $row) {
         $top = basename(str_replace('\\', '/', (string)$row['root_key']));
         $user = "Folder: $top\nCurrent title: {$row['title']}";
         $out = mwLlmChat($sysSeries, $user);
@@ -277,7 +297,11 @@ if ($llmTitles) {
         $stmtSer->reset();
         $stmtSer->bindValue(1, $out);
         $stmtSer->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
-        $stmtSer->execute();
+        if (!$dbExec($stmtSer)) {
+            echo "  (db locked, series #{$row['id']} not saved)\n";
+            $seriesFailed++;
+            continue;
+        }
         $seriesUpdated++;
     }
 
@@ -291,9 +315,12 @@ if ($llmTitles) {
             WHERE v.is_deleted = 0';
     if (!$forceLlm) $sql .= ' AND (v.name IS NULL OR v.name = \'\')';
     $sql .= ' ORDER BY v.id';
+    $videoRows = [];
     $rv = $db->query($sql);
+    while ($row = $rv->fetchArray(SQLITE3_ASSOC)) $videoRows[] = $row;
+    $rv->finalize();
     $stmtName = $db->prepare('UPDATE videos SET name = ?, updated_at = datetime(\'now\') WHERE id = ?');
-    while ($row = $rv->fetchArray(SQLITE3_ASSOC)) {
+    foreach ($videoRows as $row) {
         $fn = (string)$row['filename'];
         $fp = (string)$row['filepath'];
         $season = $row['season'] !== null ? (int)$row['season'] : null;
@@ -314,8 +341,11 @@ if ($llmTitles) {
             $stmtName->reset();
             $stmtName->bindValue(1, $out);
             $stmtName->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
-            $stmtName->execute();
-            $videoNamed++;
+            if ($dbExec($stmtName)) $videoNamed++;
+            else {
+                echo "  (db locked, not saved)\n";
+                $videoFailed++;
+            }
             continue;
         }
 
@@ -356,7 +386,11 @@ if ($llmTitles) {
         $stmtName->reset();
         $stmtName->bindValue(1, $out);
         $stmtName->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
-        $stmtName->execute();
+        if (!$dbExec($stmtName)) {
+            echo "  (db locked, not saved)\n";
+            $videoFailed++;
+            continue;
+        }
         $videoNamed++;
     }
 
