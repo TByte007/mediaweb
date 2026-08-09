@@ -24,6 +24,7 @@ if (!defined('MW_ROOT')) {
     define('MW_LLM_URL', '');                  // e.g. http://10.0.0.6:8192
     define('MW_LLM_MODEL', '');                // required on multi-model routers
     define('MW_LLM_TIMEOUT', 60);
+    define('MW_LLM_PARALLEL', 1);              // 1=serial; dense~4; MoE~8
 
     // Media roots — each entry: [ 'fs' => filesystem path, 'url' => Apache URL prefix ]
     define('MW_MEDIA_DIRS', [

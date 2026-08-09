@@ -38,7 +38,7 @@ php list.php --columns=filename,width,height,duration_secs,needs_fix
 - `MW_BASE_URL`: `/mweb/`
 - `MW_FFMPEG`: `/usr/local/bin/ffmpeg` (not on www's PATH)
 - `MW_MEDIA_DIRS`: media roots `[ ['fs' => filesystem_path, 'url' => apache_url_prefix], ... ]`
-- `MW_LLM_URL` / `MW_LLM_MODEL` / `MW_LLM_TIMEOUT`: optional llama-server for `--llm-titles` (empty URL disables)
+- `MW_LLM_URL` / `MW_LLM_MODEL` / `MW_LLM_TIMEOUT` / `MW_LLM_PARALLEL`: optional llama-server for `--llm-titles` (empty URL disables; parallel = concurrent chat requests, 1=serial)
 
   Example:
   ```php

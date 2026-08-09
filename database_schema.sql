@@ -21,9 +21,12 @@ CREATE TABLE videos (
     is_deleted      INTEGER DEFAULT 0,
     scanned_at      DATETIME NOT NULL DEFAULT (datetime('now')),
     updated_at      DATETIME NOT NULL DEFAULT (datetime('now'))
-);
+, series_id INTEGER, season INTEGER, episode INTEGER, episode_title TEXT, name TEXT);
 CREATE TABLE sqlite_sequence(name,seq);
 CREATE INDEX idx_videos_directory ON videos(directory);
 CREATE INDEX idx_videos_width   ON videos(width);
 CREATE INDEX idx_videos_height  ON videos(height);
 CREATE INDEX idx_videos_playback_count ON videos(playback_count DESC);
+CREATE TABLE series (id INTEGER PRIMARY KEY AUTOINCREMENT, root_key TEXT NOT NULL UNIQUE, title TEXT NOT NULL, cover_video_id INTEGER, updated_at DATETIME NOT NULL DEFAULT (datetime('now')));
+CREATE INDEX idx_videos_series ON videos(series_id, season, episode);
+CREATE INDEX idx_series_root ON series(root_key);

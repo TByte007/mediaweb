@@ -64,6 +64,7 @@ Shared constants live in `config.php` (gitignored). Start from `config.example.p
 | `MW_LLM_URL` | Optional llama-server base URL for `--llm-titles` (empty disables) |
 | `MW_LLM_MODEL` | Model id (required on multi-model routers) |
 | `MW_LLM_TIMEOUT` | Chat request timeout seconds (default 60) |
+| `MW_LLM_PARALLEL` | Concurrent `--llm-titles` chat requests (1=serial; dense~4; MoE~8) |
 
 Each storage entry is independent: `[ 'fs' => '/path/on/disk', 'url' => '/apache_prefix/' ]`. Only the URL prefixes need to be public.
 

@@ -354,6 +354,8 @@ if ($llmTitles) {
     while ($row = $rv->fetchArray(SQLITE3_ASSOC)) $videoRows[] = $row;
     $rv->finalize();
     $stmtName = $db->prepare('UPDATE videos SET name = ?, updated_at = datetime(\'now\') WHERE id = ?');
+
+    $jobs = [];
     foreach ($videoRows as $row) {
         $fn = (string)$row['filename'];
         $fp = (string)$row['filepath'];
@@ -366,7 +368,6 @@ if ($llmTitles) {
         $show = !empty($row['series_title']) ? (string)$row['series_title'] : '-';
         $code = ($season !== null && $episode !== null)
             ? sprintf('S%02dE%02d', $season, $episode) : null;
-        // Heuristic is only SxxExx, or SxxExx · releaseGroup → no real episode title
         $epTail = null;
         if ($code !== null && preg_match('/^S\d{2}E\d{2}\s*[·\-–]\s*(\S+)\s*$/u', trim($heur), $m))
             $epTail = $m[1];
@@ -396,66 +397,89 @@ if ($llmTitles) {
 
         $user = "file: $rel\nhint: $heur";
         if ($show !== '-') $user .= "\nshow: $show";
-        $out = mwLlmChat($sysVideo, $user);
-        if ($out !== null && strcasecmp($out, 'SKIP') !== 0 && $titleEchoesLabel($out)) {
-            echo "video #{$row['id']} | $show | $heur | $rel  →  (label-echo: $out)\n";
-            $videoFailed++;
-            continue;
-        }
-        if ($out !== null && strcasecmp($out, 'SKIP') === 0) {
-            // Dense models over-SKIP; fall back when we still have usable hint text
-            if ($show !== '-' && $code !== null) {
-                $out = "$show $code";
-            } elseif ($code !== null && ($guess = $showFromFilename($fn))) {
-                $out = "$guess $code";
-            } elseif (preg_match('/[a-z]{2,}/i', $heur) && !preg_match('/^S\d{2}E\d{2}\b/i', trim($heur))) {
-                $out = $movieTitleFromHint($heur);
-            } else {
-                echo "video #{$row['id']} | $show | $heur | $rel  →  SKIP\n";
-                $videoSkipped++;
-                continue;
-            }
-        }
-        if ($out !== null && !$titleGrounded($out, $user)) {
-            if ($show !== '-' && $code !== null) {
-                $out = "$show $code";
-            } elseif ($code !== null && ($guess = $showFromFilename($fn))) {
-                $out = "$guess $code";
-            } elseif (preg_match('/[a-z]{2,}/i', $heur) && !preg_match('/^S\d{2}E\d{2}\b/i', trim($heur))) {
-                $out = $movieTitleFromHint($heur);
-            } else {
-                echo "video #{$row['id']} | $show | $heur | $rel  →  (ungrounded)\n";
+        $jobs[] = [
+            'id' => (int)$row['id'],
+            'fn' => $fn,
+            'rel' => $rel,
+            'heur' => $heur,
+            'show' => $show,
+            'code' => $code,
+            'user' => $user,
+        ];
+    }
+
+    $fallbackTitle = static function (
+        string $show,
+        ?string $code,
+        string $fn,
+        string $heur
+    ) use ($showFromFilename, $movieTitleFromHint): ?string {
+        if ($show !== '-' && $code !== null) return "$show $code";
+        if ($code !== null && ($guess = $showFromFilename($fn))) return "$guess $code";
+        if (preg_match('/[a-z]{2,}/i', $heur) && !preg_match('/^S\d{2}E\d{2}\b/i', trim($heur)))
+            return $movieTitleFromHint($heur);
+        return null;
+    };
+
+    if ($jobs !== []) {
+        echo 'LLM video jobs: ' . count($jobs) . ' (parallel=' . mwLlmParallel() . ")\n";
+        $outs = mwLlmChatMany($sysVideo, array_column($jobs, 'user'));
+        foreach ($jobs as $j => $job) {
+            $id = $job['id'];
+            $fn = $job['fn'];
+            $rel = $job['rel'];
+            $heur = $job['heur'];
+            $show = $job['show'];
+            $code = $job['code'];
+            $user = $job['user'];
+            $out = $outs[$j] ?? null;
+
+            if ($out !== null && strcasecmp($out, 'SKIP') !== 0 && $titleEchoesLabel($out)) {
+                echo "video #$id | $show | $heur | $rel  →  (label-echo: $out)\n";
                 $videoFailed++;
                 continue;
             }
-        }
-        // "Show: Ep04 S01E04" — number-only fake episode name
-        if ($out !== null && preg_match('/:\s*(ep|e|episode)\s*\d+\s+s\d{1,2}e\d{1,2}\s*$/i', $out)) {
-            if (preg_match('/^(.*?)\s+s(\d{1,2})e(\d{1,2})\s*$/i', $out, $m)) {
-                $showOnly = trim(preg_replace('/:\s*(ep|e|episode)\s*\d+\s*$/i', '', $m[1]) ?? $m[1]);
-                $out = sprintf('%s S%02dE%02d', $showOnly, (int)$m[2], (int)$m[3]);
+            if ($out !== null && strcasecmp($out, 'SKIP') === 0) {
+                $out = $fallbackTitle($show, $code, $fn, $heur);
+                if ($out === null) {
+                    echo "video #$id | $show | $heur | $rel  →  SKIP\n";
+                    $videoSkipped++;
+                    continue;
+                }
             }
+            if ($out !== null && !$titleGrounded($out, $user)) {
+                $out = $fallbackTitle($show, $code, $fn, $heur);
+                if ($out === null) {
+                    echo "video #$id | $show | $heur | $rel  →  (ungrounded)\n";
+                    $videoFailed++;
+                    continue;
+                }
+            }
+            if ($out !== null && preg_match('/:\s*(ep|e|episode)\s*\d+\s+s\d{1,2}e\d{1,2}\s*$/i', $out)) {
+                if (preg_match('/^(.*?)\s+s(\d{1,2})e(\d{1,2})\s*$/i', $out, $m)) {
+                    $showOnly = trim(preg_replace('/:\s*(ep|e|episode)\s*\d+\s*$/i', '', $m[1]) ?? $m[1]);
+                    $out = sprintf('%s S%02dE%02d', $showOnly, (int)$m[2], (int)$m[3]);
+                }
+            }
+            if ($out !== null && $code !== null && $show !== '-'
+                && !preg_match('/S\d{1,2}E\d{1,2}\s*$/i', $out)) {
+                $out = rtrim($out) . " $code";
+            }
+            echo "video #$id | $show | $heur | $rel  →  " . ($out ?? '(fail)') . "\n";
+            if ($out === null) {
+                $videoFailed++;
+                continue;
+            }
+            $stmtName->reset();
+            $stmtName->bindValue(1, $out);
+            $stmtName->bindValue(2, $id, SQLITE3_INTEGER);
+            if (!$dbExec($stmtName)) {
+                echo "  (db locked, not saved)\n";
+                $videoFailed++;
+                continue;
+            }
+            $videoNamed++;
         }
-        // Series replies must keep the episode code
-        if ($out !== null && $code !== null && $show !== '-'
-            && !preg_match('/S\d{1,2}E\d{1,2}\s*$/i', $out)) {
-            $out = rtrim($out) . " $code";
-        }
-        $recv = $out === null ? '(fail)' : $out;
-        echo "video #{$row['id']} | $show | $heur | $rel  →  $recv\n";
-        if ($out === null) {
-            $videoFailed++;
-            continue;
-        }
-        $stmtName->reset();
-        $stmtName->bindValue(1, $out);
-        $stmtName->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
-        if (!$dbExec($stmtName)) {
-            echo "  (db locked, not saved)\n";
-            $videoFailed++;
-            continue;
-        }
-        $videoNamed++;
     }
 
     echo "LLM titles complete.\n";
