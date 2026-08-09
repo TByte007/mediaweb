@@ -5,7 +5,7 @@ tmp/
 config.php
 
 # Library data — do not publish
-media.db
+media.db*
 web/covers/
 
 # Local player/ffmpeg lab samples

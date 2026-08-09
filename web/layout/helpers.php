@@ -187,15 +187,6 @@ function videoPrettyTitle(
     return prettifyFilename($cleaned !== '' ? $cleaned : $filename);
 }
 
-/** Heuristic title still has quality/codec leftovers. */
-function titleLooksReleasey(string $pretty): bool
-{
-    return (bool)preg_match(
-        '/\b(x264|x265|hdtv|webrip|dvdrip|bluray|aac|hevc|480p|720p|1080p)\b/i',
-        $pretty
-    );
-}
-
 function pageUrl(array $extra = []): string
 {
     global $basePath;

@@ -152,12 +152,12 @@ function episodePrettyTitle(
     ?string $episodeTitle,
     ?string $displayName = null
 ): string {
-    $epName = trim((string)$displayName);
-    if ($epName === '') $epName = trim((string)$episodeTitle);
+    if (($dn = trim((string)$displayName)) !== '') return $dn;
 
+    $epName = trim((string)$episodeTitle);
     if ($season === null || $episode === null) {
         if ($epName !== '') return $epName;
-        return videoPrettyTitle($filename, $dbTitle, $filepath, $displayName);
+        return videoPrettyTitle($filename, $dbTitle, $filepath);
     }
     $code = sprintf('S%02dE%02d', $season, $episode);
     return $epName !== '' ? "$code · $epName" : $code;

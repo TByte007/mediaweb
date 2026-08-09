@@ -30,7 +30,7 @@ php list.php --columns=filename,width,height,duration_secs,needs_fix
 
 **Series linking:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) parses season/episode from paths, upserts the `series` table, and sets `videos.series_id`. Use `php scan.php --series-backfill` to run only that pass (no tree walk / MediaInfo).
 
-**LLM display names:** Optional. Set `MW_LLM_URL` (and `MW_LLM_MODEL` on multi-model routers). `php scan.php --llm-titles` calls llama-server chat with thinking disabled, updates `series.title`, and fills `videos.name` for messy filenames only (`--force` = all living rows). Web UI prefers `videos.name` when set; never calls the LLM on page views. Empty/unreachable URL → heuristics only (`prettifyFilename`, including DS9/SGA-style acronyms). Typical order: `--series-backfill` then `--llm-titles`.
+**LLM display names:** Optional. Set `MW_LLM_URL` (and `MW_LLM_MODEL` on multi-model routers). `php scan.php --llm-titles` calls llama-server chat with thinking disabled, updates `series.title`, and fills `videos.name` for rows that still need a name (`--force` = overwrite all living rows). Web UI prefers `videos.name` when set; never calls the LLM on page views. Empty/unreachable URL → heuristics only (`prettifyFilename`, including DS9/SGA-style acronyms). Typical order: `--series-backfill` then `--llm-titles`.
 
 ## Config (`config.php`)
 

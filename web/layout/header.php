@@ -144,6 +144,9 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
     font-size: 22px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em;
     display: flex; flex-direction: column; gap: 4px;
 }
+.video-title-line {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25em 0.5em;
+}
 .video-title-sub {
     font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--muted);
 }

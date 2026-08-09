@@ -129,10 +129,10 @@ $subsLabel = $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's
 <?php if ($seriesNav): ?>
         <span class="video-title-sub"><?= htmlspecialchars($seriesLabel) ?></span>
 <?php endif; ?>
-        <span class="video-title-pretty"><?= htmlspecialchars($v['title']) ?></span>
-<?php if (!$seriesNav): ?>
-        <span class="video-title-sub">(<?= htmlspecialchars($rawName) ?>)</span>
-<?php endif; ?>
+        <span class="video-title-line">
+            <span class="video-title-pretty"><?= htmlspecialchars($v['title']) ?></span>
+            <span class="video-title-sub">(<?= htmlspecialchars($rawName) ?>)</span>
+        </span>
     </h1>
     <nav class="view-nav" aria-label="Episode navigation">
 <?php if ($seriesNav): ?>

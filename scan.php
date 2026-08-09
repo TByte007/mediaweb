@@ -48,7 +48,7 @@ Options:
     --force-rescan       Re-run metadata extract on files already in the database
     --series-backfill    Re-link series/seasons/episodes from paths only (no tree walk)
     --llm-titles         Polish series.title + videos.name via llama-server (MW_LLM_URL)
-    --force              With --llm-titles: overwrite existing names (all living videos)
+    --force              With --llm-titles: overwrite existing names
     --help               Show this help
 
 Scans for: mkv, mp4, avi, mov, webm, wmv, flv, m4v
@@ -78,7 +78,7 @@ Behavior:
 
     --llm-titles:
         Requires MW_LLM_URL (llama-server). Updates series.title and fills videos.name
-        for messy paths only (or all with --force). Heuristics used if LLM is off/down.
+        (unnamed rows, or all with --force). Heuristics used if LLM is off/down.
         Thinking disabled. Run after --series-backfill when polishing a library.
 
 USAGE;
@@ -234,11 +234,16 @@ if ($llmTitles) {
 
     $sysSeries = 'You name TV shows from torrent/release folder names. '
         . 'Reply with ONLY the canonical show title on one line. '
-        . 'Expand codes like DS9, SGA, SGU, TNG. No year, quality, codec, or group tags.';
-    $sysVideo = 'You name a video file for a media library. '
-        . 'Reply with ONLY a short human title on one line. '
-        . 'For episodes: episode name only (no SxxExx, no show name). '
-        . 'For movies: the movie title. No quality/codec/group tags.';
+        . 'Expand codes like DS9, SGA, SGU, TNG. '
+        . 'Keep the year in parentheses when known, e.g. Title (1993). '
+        . 'No quality, codec, or group tags.';
+    $sysVideo = 'Extract a display title using ONLY words that already appear in the user text. '
+        . 'Do not invent words, facts, or episode names. '
+        . 'For series episodes use: Show: EpisodeName SxxExx '
+        . '(e.g. Mayday: Deadly Detour S16E05). Include the episode name when it appears in Path/Heuristic. '
+        . 'If there is a show but no episode title words, use Show SxxExx (e.g. Mayday S16E05). '
+        . 'For movies: Title (YYYY) when a year appears. '
+        . 'Ignore quality/codec/group tags. If nothing usable, reply SKIP.';
 
     $seriesUpdated = 0;
     $seriesFailed = 0;
@@ -246,10 +251,12 @@ if ($llmTitles) {
     $stmtSer = $db->prepare('UPDATE series SET title = ?, updated_at = datetime(\'now\') WHERE id = ?');
     while ($row = $rs->fetchArray(SQLITE3_ASSOC)) {
         $top = basename(str_replace('\\', '/', (string)$row['root_key']));
-        $out = mwLlmChat($sysSeries, "Folder: $top\nCurrent title: {$row['title']}");
+        $user = "Folder: $top\nCurrent title: {$row['title']}";
+        $out = mwLlmChat($sysSeries, $user);
+        echo "series #{$row['id']} | $top | {$row['title']}  →  "
+            . ($out === null ? '(fail)' : $out) . "\n";
         if ($out === null) {
             $seriesFailed++;
-            if ($verbose) echo "  [FAIL] series #{$row['id']} {$row['title']}\n";
             continue;
         }
         $stmtSer->reset();
@@ -257,7 +264,6 @@ if ($llmTitles) {
         $stmtSer->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
         $stmtSer->execute();
         $seriesUpdated++;
-        if ($verbose) echo "  [OK]   series #{$row['id']} → $out\n";
     }
 
     $videoNamed = 0;
@@ -281,19 +287,19 @@ if ($llmTitles) {
             $row['episode'] !== null ? (int)$row['episode'] : null,
             $row['episode_title']
         );
-        if (!$forceLlm
-            && !filenameIsCryptic($fn)
-            && !titleLooksReleasey($heur)
-            && !($row['series_id'] && ($row['episode_title'] === null || $row['episode_title'] === ''))) {
+        $rel = mediaRelPath($fp) ?? $fp;
+        $user = "Path: $rel\nHeuristic: $heur";
+        if (!empty($row['series_title'])) $user .= "\nShow: {$row['series_title']}";
+        $out = mwLlmChat($sysVideo, $user);
+        $show = !empty($row['series_title']) ? $row['series_title'] : '-';
+        $recv = $out === null ? '(fail)' : $out;
+        echo "video #{$row['id']} | $show | $heur | $rel  →  $recv\n";
+        if ($out !== null && strcasecmp($out, 'SKIP') === 0) {
             $videoSkipped++;
             continue;
         }
-        $user = 'Path: ' . (mediaRelPath($fp) ?? $fp) . "\nHeuristic: $heur";
-        if (!empty($row['series_title'])) $user .= "\nShow: {$row['series_title']}";
-        $out = mwLlmChat($sysVideo, $user);
         if ($out === null) {
             $videoFailed++;
-            if ($verbose) echo "  [FAIL] video #{$row['id']} $fn\n";
             continue;
         }
         $stmtName->reset();
@@ -301,7 +307,6 @@ if ($llmTitles) {
         $stmtName->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
         $stmtName->execute();
         $videoNamed++;
-        if ($verbose) echo "  [OK]   video #{$row['id']} → $out\n";
     }
 
     echo "LLM titles complete.\n";
