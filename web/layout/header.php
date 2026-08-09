@@ -229,10 +229,17 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
     color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 500;
 }
 .back-link:hover { color: var(--accent); }
+@media(max-width:900px) {
+    .grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .card-title { -webkit-line-clamp: 3; line-clamp: 3; }
+}
+@media(max-width:560px) {
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    main { padding-left: 14px; padding-right: 14px; }
+}
 @media(max-width:800px) {
     .view-grid { flex-direction: column; }
     .meta-grid { grid-template-columns: repeat(2, 1fr); }
-    .grid { grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 10px; }
 }
 </style>
 </head>
