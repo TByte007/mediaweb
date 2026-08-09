@@ -97,6 +97,9 @@ $search = '';
 $seriesLabel = $seriesNav
     ? ((string)$seriesNav['title'] . ($seasonNum !== null ? ' · Season ' . $seasonNum : ''))
     : '';
+$pageTitle = $seriesNav
+    ? ($v['title'] . ' · ' . (string)$seriesNav['title'])
+    : $v['title'];
 $playerQs = $playerPref !== 'auto' ? '&player=' . rawurlencode($playerPref) : '';
 $viewHref = fn(int $vid): string => MW_BASE_URL . '?view=' . $vid . $playerQs;
 
