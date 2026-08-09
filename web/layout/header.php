@@ -1,4 +1,4 @@
-<?php require_once __DIR__ . '/helpers.php'; ?>
+<?php require_once __DIR__ . '/helpers.php'; $basePath ??= MW_BASE_URL; $len ??= ''; ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
