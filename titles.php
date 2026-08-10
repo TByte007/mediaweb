@@ -174,10 +174,11 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
     $movieNamed = 0;
 
     $stmtSer = $db->prepare(
-        'UPDATE series SET tmdb_id = ?, title = ?, updated_at = datetime(\'now\') WHERE id = ?'
+        'UPDATE series SET tmdb_id = ?, title = ?, genre_ids = ?, tmdb_type = ?,
+         updated_at = datetime(\'now\') WHERE id = ?'
     );
     $seriesRows = [];
-    $rs = $db->query('SELECT id, root_key, title, tmdb_id FROM series ORDER BY id');
+    $rs = $db->query('SELECT id, root_key, title, tmdb_id, genre_ids FROM series ORDER BY id');
     while ($row = $rs->fetchArray(SQLITE3_ASSOC)) $seriesRows[] = $row;
     $rs->finalize();
 
@@ -185,31 +186,41 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $id = (int)$row['id'];
         $top = basename(str_replace('\\', '/', (string)$row['root_key']));
         $cachedId = $row['tmdb_id'] !== null ? (int)$row['tmdb_id'] : 0;
+        $hasGenres = $row['genre_ids'] !== null && $row['genre_ids'] !== '';
         if (str_contains(strtolower($top), 'atgm')
             || str_contains(strtolower((string)$row['root_key']), 'atgm')) {
             if ($verbose) echo "tmdb series #$id | $top  →  (skip ATGM)\n";
             continue;
         }
-        if ($cachedId > 0 && !$force) {
+        if ($cachedId > 0 && !$force && $hasGenres) {
             if ($verbose) echo "tmdb series #$id | {$row['title']}  →  cached\n";
             continue;
         }
-        if ($cachedId > 0 && $force) {
+        if ($cachedId > 0) {
             $hit = mwTmdbDetails('tv', $cachedId);
             if ($hit === null) {
                 echo "tmdb series #$id | {$row['title']}  →  (refresh fail id $cachedId)\n";
                 continue;
             }
-            $newTitle = mwTmdbFormatShowTitle($hit['name'], $hit['year']);
+            mwTmdbUpsertGenres($db, $hit['genres']);
+            $csv = mwTmdbGenreIdsCsv($hit['genres']);
+            $newTitle = $force
+                ? mwTmdbFormatShowTitle($hit['name'], $hit['year'])
+                : (string)$row['title'];
             $stmtSer->reset();
             $stmtSer->bindValue(1, $cachedId, SQLITE3_INTEGER);
             $stmtSer->bindValue(2, $newTitle);
-            $stmtSer->bindValue(3, $id, SQLITE3_INTEGER);
+            $stmtSer->bindValue(3, $csv !== '' ? $csv : null, $csv !== '' ? SQLITE3_TEXT : SQLITE3_NULL);
+            $stmtSer->bindValue(4, $hit['type'], $hit['type'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
+            $stmtSer->bindValue(5, $id, SQLITE3_INTEGER);
             if (!$dbExec($stmtSer)) {
                 echo "tmdb series #$id  →  (db locked)\n";
                 continue;
             }
-            echo "tmdb series #$id | {$row['title']}  →  $newTitle [refresh $cachedId]\n";
+            echo $force
+                ? "tmdb series #$id | {$row['title']}  →  $newTitle [refresh $cachedId]\n"
+                : "tmdb series #$id | {$row['title']}  →  genres [$csv]"
+                    . ($hit['type'] ? " type={$hit['type']}" : '') . "\n";
             $seriesResolved++;
             continue;
         }
@@ -231,16 +242,27 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             echo "tmdb series #$id | {$row['title']}  →  (no match)\n";
             continue;
         }
-        $newTitle = mwTmdbFormatShowTitle($hit['name'], $hit['year']);
+        $detail = mwTmdbDetails('tv', $hit['id']);
+        if ($detail === null) {
+            $detail = [
+                'id' => $hit['id'], 'name' => $hit['name'], 'year' => $hit['year'],
+                'genres' => [], 'type' => null,
+            ];
+        }
+        mwTmdbUpsertGenres($db, $detail['genres']);
+        $csv = mwTmdbGenreIdsCsv($detail['genres']);
+        $newTitle = mwTmdbFormatShowTitle($detail['name'], $detail['year']);
         $stmtSer->reset();
-        $stmtSer->bindValue(1, $hit['id'], SQLITE3_INTEGER);
+        $stmtSer->bindValue(1, $detail['id'], SQLITE3_INTEGER);
         $stmtSer->bindValue(2, $newTitle);
-        $stmtSer->bindValue(3, $id, SQLITE3_INTEGER);
+        $stmtSer->bindValue(3, $csv !== '' ? $csv : null, $csv !== '' ? SQLITE3_TEXT : SQLITE3_NULL);
+        $stmtSer->bindValue(4, $detail['type'], $detail['type'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
+        $stmtSer->bindValue(5, $id, SQLITE3_INTEGER);
         if (!$dbExec($stmtSer)) {
             echo "tmdb series #$id  →  (db locked)\n";
             continue;
         }
-        echo "tmdb series #$id | {$row['title']}  →  $newTitle [tmdb {$hit['id']}; $via]\n";
+        echo "tmdb series #$id | {$row['title']}  →  $newTitle [tmdb {$detail['id']}; $via]\n";
         $seriesResolved++;
     }
 
@@ -308,12 +330,10 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
     }
 
     $stmtMov = $db->prepare(
-        'UPDATE videos SET name = ?, tmdb_id = ?, updated_at = datetime(\'now\') WHERE id = ?'
+        'UPDATE videos SET name = ?, tmdb_id = ?, genre_ids = ?, updated_at = datetime(\'now\') WHERE id = ?'
     );
-    $sqlMov = 'SELECT id, filepath, filename, title, duration_secs, tmdb_id FROM videos
-               WHERE is_deleted = 0 AND series_id IS NULL';
-    if (!$force) $sqlMov .= ' AND (name IS NULL OR name = \'\')';
-    $sqlMov .= ' ORDER BY id';
+    $sqlMov = 'SELECT id, filepath, filename, title, duration_secs, tmdb_id, genre_ids, name FROM videos
+               WHERE is_deleted = 0 AND series_id IS NULL ORDER BY id';
     $movRows = [];
     $rm = $db->query($sqlMov);
     while ($row = $rm->fetchArray(SQLITE3_ASSOC)) $movRows[] = $row;
@@ -325,6 +345,8 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $fn = (string)$row['filename'];
         $dur = $row['duration_secs'] !== null ? (int)$row['duration_secs'] : 0;
         $cachedId = $row['tmdb_id'] !== null ? (int)$row['tmdb_id'] : 0;
+        $hasGenres = $row['genre_ids'] !== null && $row['genre_ids'] !== '';
+        $hasName = $row['name'] !== null && $row['name'] !== '';
         if ($dur < $minSecs) {
             if ($verbose) echo "tmdb movie #$id  →  (short {$dur}s)\n";
             continue;
@@ -333,29 +355,37 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             if ($verbose) echo "tmdb movie #$id  →  (skip ATGM)\n";
             continue;
         }
-        if ($cachedId > 0 && !$force) {
-            if ($verbose) echo "tmdb movie #$id  →  cached\n";
-            continue;
-        }
-        if ($cachedId > 0 && $force) {
+        if ($cachedId > 0) {
+            if (!$force && $hasGenres && $hasName) {
+                if ($verbose) echo "tmdb movie #$id  →  cached\n";
+                continue;
+            }
             $hit = mwTmdbDetails('movie', $cachedId);
             if ($hit === null) {
                 echo "tmdb movie #$id  →  (refresh fail id $cachedId)\n";
                 continue;
             }
-            $out = mwTmdbFormatShowTitle($hit['name'], $hit['year']);
+            mwTmdbUpsertGenres($db, $hit['genres']);
+            $csv = mwTmdbGenreIdsCsv($hit['genres']);
+            $out = ($force || !$hasName)
+                ? mwTmdbFormatShowTitle($hit['name'], $hit['year'])
+                : (string)$row['name'];
             $stmtMov->reset();
             $stmtMov->bindValue(1, $out);
             $stmtMov->bindValue(2, $cachedId, SQLITE3_INTEGER);
-            $stmtMov->bindValue(3, $id, SQLITE3_INTEGER);
+            $stmtMov->bindValue(3, $csv !== '' ? $csv : null, $csv !== '' ? SQLITE3_TEXT : SQLITE3_NULL);
+            $stmtMov->bindValue(4, $id, SQLITE3_INTEGER);
             if (!$dbExec($stmtMov)) {
                 echo "tmdb movie #$id  →  (db locked)\n";
                 continue;
             }
-            echo "tmdb movie #$id  →  $out [refresh $cachedId]\n";
+            echo ($force || !$hasName)
+                ? "tmdb movie #$id  →  $out [refresh $cachedId]\n"
+                : "tmdb movie #$id  →  genres [$csv]\n";
             $movieNamed++;
             continue;
         }
+        if (!$force && $hasName) continue;
 
         if (preg_match('/s\d{1,2}e\d{1,2}/i', $fn)) {
             if ($verbose) echo "tmdb movie #$id | $fn  →  (skip SxxExx)\n";
@@ -378,16 +408,26 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             echo "tmdb movie #$id | $heur  →  (no match)\n";
             continue;
         }
-        $out = mwTmdbFormatShowTitle($hit['name'], $hit['year']);
+        $detail = mwTmdbDetails('movie', $hit['id']);
+        if ($detail === null) {
+            $detail = [
+                'id' => $hit['id'], 'name' => $hit['name'], 'year' => $hit['year'],
+                'genres' => [], 'type' => null,
+            ];
+        }
+        mwTmdbUpsertGenres($db, $detail['genres']);
+        $csv = mwTmdbGenreIdsCsv($detail['genres']);
+        $out = mwTmdbFormatShowTitle($detail['name'], $detail['year']);
         $stmtMov->reset();
         $stmtMov->bindValue(1, $out);
-        $stmtMov->bindValue(2, $hit['id'], SQLITE3_INTEGER);
-        $stmtMov->bindValue(3, $id, SQLITE3_INTEGER);
+        $stmtMov->bindValue(2, $detail['id'], SQLITE3_INTEGER);
+        $stmtMov->bindValue(3, $csv !== '' ? $csv : null, $csv !== '' ? SQLITE3_TEXT : SQLITE3_NULL);
+        $stmtMov->bindValue(4, $id, SQLITE3_INTEGER);
         if (!$dbExec($stmtMov)) {
             echo "tmdb movie #$id  →  (db locked)\n";
             continue;
         }
-        echo "tmdb movie #$id | $heur  →  $out [tmdb {$hit['id']}; $via]\n";
+        echo "tmdb movie #$id | $heur  →  $out [tmdb {$detail['id']}; $via]\n";
         $movieNamed++;
     }
 

@@ -11,6 +11,7 @@ $search = trim($_GET['q'] ?? '');
 $mode = 'series';
 $sid = isset($_GET['sid']) && ctype_digit((string)$_GET['sid']) ? (int)$_GET['sid'] : 0;
 $season = isset($_GET['season']) && ctype_digit((string)$_GET['season']) ? (int)$_GET['season'] : null;
+$genre = isset($_GET['genre']) && ctype_digit((string)$_GET['genre']) ? (int)$_GET['genre'] : 0;
 
 if (!file_exists(MW_DB)) {
     http_response_code(500);
@@ -112,14 +113,21 @@ if ($sid > 0) {
         $total = count($seasons);
     }
 } else {
+    $genreFilters = mwGenresForFilter($db, true);
+    if ($genre > 0 && !in_array($genre, array_column($genreFilters, 'id'), true))
+        $genre = 0;
     $where = '1=1';
     $params = [];
     if ($search !== '') {
         $where = 's.title LIKE :q';
         $params['q'] = "%$search%";
     }
+    if ($genre > 0) {
+        $where .= " AND (',' || IFNULL(s.genre_ids,'') || ',') LIKE :genre_like";
+        $params['genre_like'] = '%,'.$genre.',%';
+    }
     $stmt = $db->prepare(
-        "SELECT s.id, s.title, s.cover_video_id,
+        "SELECT s.id, s.title, s.cover_video_id, s.tmdb_type,
                 COUNT(v.id) AS eps, COUNT(DISTINCT v.season) AS seasons
          FROM series s
          JOIN videos v ON v.series_id = s.id AND v.is_deleted = 0
@@ -136,6 +144,7 @@ if ($sid > 0) {
             'cover_video_id' => $row['cover_video_id'] !== null ? (int)$row['cover_video_id'] : null,
             'eps' => (int)$row['eps'],
             'seasons' => (int)$row['seasons'],
+            'tmdb_type' => trim((string)($row['tmdb_type'] ?? '')) ?: null,
         ];
     }
     $result->finalize();
@@ -168,6 +177,9 @@ require __DIR__ . '/layout/header.php';
                 <?php endif; ?>
                 <div class="tags">
                     <span class="tag time"><?= $s['seasons'] ?> season<?= $s['seasons'] != 1 ? 's' : '' ?></span>
+                    <?php if (!empty($s['tmdb_type'])): ?>
+                    <span class="tag"><?= htmlspecialchars($s['tmdb_type']) ?></span>
+                    <?php endif; ?>
                 </div>
             </div>
             <div class="card-body">

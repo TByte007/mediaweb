@@ -83,6 +83,12 @@ body {
 .len-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
 .len-btn.active { color: #fff; background: var(--accent); }
 .len-btn .len-hint { margin-left: 5px; font-size: 12px; font-weight: 500; opacity: 0.55; }
+.genre-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.04);
+}
+.genre-row .len-filters { flex-wrap: wrap; }
 main { max-width: 1400px; margin: 0 auto; padding: 24px 24px 60px; }
 .info { margin-bottom: 14px; font-size: 12px; color: var(--muted); }
 .info strong { color: var(--accent); }
@@ -264,10 +270,13 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
             <?php if (!empty($len) && $browseMode === 'library'): ?>
             <input type="hidden" name="len" value="<?= htmlspecialchars($len) ?>">
             <?php endif; ?>
+            <?php if (!empty($genre)): ?>
+            <input type="hidden" name="genre" value="<?= (int)$genre ?>">
+            <?php endif; ?>
         </form>
         <nav class="len-filters" aria-label="Browse mode">
-            <a class="len-btn<?= $browseMode === 'library' ? ' active' : '' ?>" href="<?= htmlspecialchars($basePath . (!empty($len) ? '?len=' . urlencode($len) : '')) ?>">Library</a>
-            <a class="len-btn<?= $browseMode === 'series' ? ' active' : '' ?>" href="<?= htmlspecialchars($basePath . '?mode=series') ?>">Series</a>
+            <a class="len-btn<?= $browseMode === 'library' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['mode' => null, 'sid' => null, 'season' => null, 'page' => null])) ?>">Library</a>
+            <a class="len-btn<?= $browseMode === 'series' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['mode' => 'series', 'sid' => null, 'season' => null, 'len' => null, 'page' => null])) ?>">Series</a>
         </nav>
         <?php if ($browseMode === 'library' && isset($lenFilters)): ?>
         <nav class="len-filters" aria-label="Filter by length">
@@ -291,6 +300,21 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
             }
         ?></div>
     </div>
+    <?php
+    $showGenreRow = !empty($genreFilters)
+        && ($browseMode === 'library' || ($browseMode === 'series' && ($seriesLevel ?? '') === 'shows'));
+    $genreActive = (int)($genre ?? 0);
+    if ($showGenreRow):
+    ?>
+    <div class="genre-row">
+        <nav class="len-filters" aria-label="Filter by genre">
+            <a class="len-btn<?= $genreActive === 0 ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['genre' => null, 'page' => null])) ?>">All genres</a>
+            <?php foreach ($genreFilters as $g): ?>
+            <a class="len-btn<?= $genreActive === $g['id'] ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['genre' => $g['id'], 'page' => null])) ?>"><?= htmlspecialchars($g['name']) ?></a>
+            <?php endforeach; ?>
+        </nav>
+    </div>
+    <?php endif; ?>
 </div>
 </header>
 <script>

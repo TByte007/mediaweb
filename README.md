@@ -39,8 +39,8 @@ php scan.php --help
 php scan.php --verbose                 # incremental scan + link + enrich titles
 php scan.php --force-rescan            # re-extract metadata for known files
 php scan.php --scan-only --verbose     # refresh needs_fix (PTS probe)
-php scan.php --series-backfill         # re-link + enrich (no tree walk)
-php scan.php --series-backfill --force # full display-name rebuild
+php scan.php --titles-backfill         # re-link + enrich (no tree walk)
+php scan.php --titles-backfill --force # full display-name rebuild
 php scan.php --no-tmdb --no-llm        # enrich without remote layers (tests)
 
 php list.php --format=HEVC
@@ -49,7 +49,7 @@ php list.php --count --format=AVC
 php list.php --columns=filename,width,height,duration_secs,needs_fix
 ```
 
-**Default scan:** skip files already in the DB; probe new ones; mark missing rows `is_deleted=1` (hidden from the library, kept for play counts). Then `linkSeries()` + `enrichTitles()` (dirs/files → LLM search terms → TMDB → id; LLM/PHP gap-fill). Cron: `php scan.php` is enough when keys are set; use `--series-backfill --force` to refresh names from cached TMDB ids.
+**Default scan:** skip files already in the DB; probe new ones; mark missing rows `is_deleted=1` (hidden from the library, kept for play counts). Then `linkSeries()` + `enrichTitles()` (dirs/files → LLM search terms → TMDB → id; LLM/PHP gap-fill). Cron: `php scan.php` is enough when keys are set; use `--titles-backfill --force` to refresh names from cached TMDB ids.
 
 ## Config
 
@@ -70,7 +70,7 @@ Shared constants live in `config.php` (gitignored). Start from `config.example.p
 
 Each storage entry is independent: `[ 'fs' => '/path/on/disk', 'url' => '/apache_prefix/' ]`. Only the URL prefixes need to be public.
 
-Display titles: MediaInfo stays in `videos.title`; enrich discovers TMDB ids from folder/filename (LLM proposes search terms), then writes `videos.name` / `series.title` from TMDB (UI prefers `name`). Never call TMDB or the LLM from page views. Test overrides: `--no-tmdb` / `--no-llm`.
+Display titles: MediaInfo stays in `videos.title`; enrich discovers TMDB ids from folder/filename (LLM proposes search terms), then writes `videos.name` / `series.title` plus `genre_ids` (and series `tmdb_type`) from TMDB (UI prefers `name`; Library/Series filter with `?genre=`). Never call TMDB or the LLM from page views. Test overrides: `--no-tmdb` / `--no-llm`.
 
 ## Browser playback and `needs_fix`
 

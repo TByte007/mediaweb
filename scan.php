@@ -27,14 +27,14 @@ $dbFile         = MW_DB;
 $verbose        = false;
 $scanOnly       = false;
 $forceRescan    = false;
-$seriesBackfill = false;
+$titlesBackfill = false;
 $forceNames     = false;
 $useTmdb        = true;
 $useLlm         = true;
 $dirOverride    = false;
 
 $opts = getopt('', [
-    'dir:', 'db:', 'verbose', 'scan-only', 'force-rescan', 'series-backfill',
+    'dir:', 'db:', 'verbose', 'scan-only', 'force-rescan', 'titles-backfill',
     'force', 'no-tmdb', 'no-llm', 'help',
 ]);
 
@@ -49,7 +49,7 @@ Options:
     --verbose            Show progress as files are processed
     --scan-only          Refresh needs_fix (PTS probe + MPEG-4/Xvid in any container)
     --force-rescan       Re-run metadata extract on files already in the database
-    --series-backfill    Re-link series/seasons/episodes, then enrich titles (no tree walk)
+    --titles-backfill    Re-link series + enrich titles/genres (no tree walk)
     --force              With enrich: refresh names from cached TMDB ids; refill gaps
     --no-tmdb            Skip TMDB layer (tests; empty MW_TMDB_TOKEN also skips)
     --no-llm             Skip LLM search-terms + display gap-fill (folder search only)
@@ -78,10 +78,10 @@ Behavior:
         Re-check candidates above; UPDATE needs_fix from the PTS tests.
         No series link / no title enrich.
 
-    --series-backfill:
+    --titles-backfill:
         Re-run linkSeries + enrichTitles only (no MediaInfo / no filesystem walk).
-        Full name rebuild (refresh from cached ids + gaps):
-        php scan.php --series-backfill --force
+        Full rebuild (refresh from cached ids + gaps):
+        php scan.php --titles-backfill --force
 
 USAGE;
     echo str_replace('MW_DB', MW_DB, "Default DB: MW_DB\n");
@@ -92,12 +92,12 @@ if (!empty($opts['db']))              $dbFile         = $opts['db'];
 if (isset($opts['verbose']))          $verbose        = true;
 if (isset($opts['scan-only']))        $scanOnly       = true;
 if (isset($opts['force-rescan']))     $forceRescan    = true;
-if (isset($opts['series-backfill']))  $seriesBackfill = true;
+if (isset($opts['titles-backfill']))  $titlesBackfill = true;
 if (isset($opts['force']))            $forceNames     = true;
 if (isset($opts['no-tmdb']))          $useTmdb        = false;
 if (isset($opts['no-llm']))           $useLlm         = false;
 
-$skipMediaTools = $seriesBackfill;
+$skipMediaTools = $titlesBackfill;
 if (!$skipMediaTools) {
     if (!file_exists(MW_FFMPEG)) {
         echo "Error: ffmpeg not found at " . MW_FFMPEG . "\n";
@@ -177,6 +177,14 @@ CREATE TABLE IF NOT EXISTS series (
 SQL
 );
 
+$db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS genres (
+    id    INTEGER PRIMARY KEY,
+    name  TEXT NOT NULL
+);
+SQL
+);
+
 $db->exec('CREATE INDEX IF NOT EXISTS idx_videos_directory ON videos(directory);');
 $db->exec('CREATE INDEX IF NOT EXISTS idx_videos_width   ON videos(width);');
 $db->exec('CREATE INDEX IF NOT EXISTS idx_videos_height  ON videos(height);');
@@ -193,6 +201,7 @@ $hasEpisode = false;
 $hasEpisodeTitle = false;
 $hasName = false;
 $hasVideoTmdbId = false;
+$hasVideoGenreIds = false;
 while ($col = $result->fetchArray(2)) {
     if (!empty($col) && isset($col[1])) {
         if ($col[1] === 'needs_fix') $hasNeedsFix = true;
@@ -203,6 +212,7 @@ while ($col = $result->fetchArray(2)) {
         if ($col[1] === 'episode_title') $hasEpisodeTitle = true;
         if ($col[1] === 'name') $hasName = true;
         if ($col[1] === 'tmdb_id') $hasVideoTmdbId = true;
+        if ($col[1] === 'genre_ids') $hasVideoGenreIds = true;
     }
 }
 if (!$hasNeedsFix) $db->exec('ALTER TABLE videos ADD COLUMN needs_fix INTEGER DEFAULT 0;');
@@ -213,19 +223,27 @@ if (!$hasEpisode) $db->exec('ALTER TABLE videos ADD COLUMN episode INTEGER;');
 if (!$hasEpisodeTitle) $db->exec('ALTER TABLE videos ADD COLUMN episode_title TEXT;');
 if (!$hasName) $db->exec('ALTER TABLE videos ADD COLUMN name TEXT;');
 if (!$hasVideoTmdbId) $db->exec('ALTER TABLE videos ADD COLUMN tmdb_id INTEGER;');
+if (!$hasVideoGenreIds) $db->exec('ALTER TABLE videos ADD COLUMN genre_ids TEXT;');
 
 $hasSeriesTmdbId = false;
+$hasSeriesGenreIds = false;
+$hasSeriesTmdbType = false;
 $rsSer = $db->query('PRAGMA table_info(series);');
 while ($col = $rsSer->fetchArray(2)) {
-    if (!empty($col) && isset($col[1]) && $col[1] === 'tmdb_id') $hasSeriesTmdbId = true;
+    if (empty($col) || !isset($col[1])) continue;
+    if ($col[1] === 'tmdb_id') $hasSeriesTmdbId = true;
+    if ($col[1] === 'genre_ids') $hasSeriesGenreIds = true;
+    if ($col[1] === 'tmdb_type') $hasSeriesTmdbType = true;
 }
 if (!$hasSeriesTmdbId) $db->exec('ALTER TABLE series ADD COLUMN tmdb_id INTEGER;');
+if (!$hasSeriesGenreIds) $db->exec('ALTER TABLE series ADD COLUMN genre_ids TEXT;');
+if (!$hasSeriesTmdbType) $db->exec('ALTER TABLE series ADD COLUMN tmdb_type TEXT;');
 
-if ($seriesBackfill) {
+if ($titlesBackfill) {
     $db->exec('BEGIN;');
     $stats = linkSeries($db);
     $db->exec('COMMIT;');
-    echo "Series backfill complete.\n";
+    echo "Titles backfill complete.\n";
     echo "  Series:   {$stats['series']} shows\n";
     echo "  Linked:   {$stats['linked']} episodes\n";
     $enrich = enrichTitles($db, $forceNames, $useTmdb, $useLlm, $verbose);

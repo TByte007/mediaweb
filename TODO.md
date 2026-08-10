@@ -16,7 +16,7 @@
 
 ## Ops / polish
 
-- [x] **Cron** — incremental `php scan.php` already enriches title gaps when TMDB/LLM are configured; `--series-backfill --force` refreshes from cached TMDB ids; `--no-tmdb` / `--no-llm` for tests.
+- [x] **Cron** — incremental `php scan.php` already enriches title gaps when TMDB/LLM are configured; `--titles-backfill --force` refreshes from cached TMDB ids; `--no-tmdb` / `--no-llm` for tests.
 - [ ] **Soft-deleted purge** — optional CLI to `DELETE FROM videos WHERE is_deleted=1` (and orphan covers), with a dry-run.
 
 ## Out of scope (do not do)

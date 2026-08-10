@@ -197,3 +197,35 @@ function pageUrl(array $extra = []): string
     if ($params === []) return $basePath;
     return $basePath . '?' . http_build_query($params);
 }
+
+/**
+ * Genres present in the library (or series-browse only).
+ * @return list<array{id: int, name: string}>
+ */
+function mwGenresForFilter(\SQLite3 $db, bool $seriesOnly = false): array
+{
+    $sql = $seriesOnly
+        ? "SELECT g.id, g.name FROM genres g
+           WHERE EXISTS (
+               SELECT 1 FROM series s
+               JOIN videos v ON v.series_id = s.id AND v.is_deleted = 0
+               WHERE (',' || IFNULL(s.genre_ids,'') || ',') LIKE '%,' || g.id || ',%'
+           )
+           ORDER BY g.name COLLATE NOCASE"
+        : "SELECT g.id, g.name FROM genres g
+           WHERE EXISTS (
+               SELECT 1 FROM videos v
+               LEFT JOIN series s ON s.id = v.series_id
+               WHERE v.is_deleted = 0
+                 AND (
+                   (v.series_id IS NOT NULL AND (',' || IFNULL(s.genre_ids,'') || ',') LIKE '%,' || g.id || ',%')
+                   OR (v.series_id IS NULL AND (',' || IFNULL(v.genre_ids,'') || ',') LIKE '%,' || g.id || ',%')
+                 )
+           )
+           ORDER BY g.name COLLATE NOCASE";
+    $out = [];
+    $rs = $db->query($sql);
+    while ($row = $rs->fetchArray(SQLITE3_ASSOC))
+        $out[] = ['id' => (int)$row['id'], 'name' => (string)$row['name']];
+    return $out;
+}

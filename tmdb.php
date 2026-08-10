@@ -181,7 +181,7 @@ function mwTmdbSearchMovie(string $query, ?int $year = null): ?array
     return mwTmdbSearch('movie', $query, $year);
 }
 
-/** @return array{id: int, name: string, year: ?int}|null */
+/** @return array{id: int, name: string, year: ?int, genres: list<array{id: int, name: string}>, type: ?string}|null */
 function mwTmdbDetails(string $kind, int $id): ?array
 {
     $j = mwTmdbGet("$kind/$id");
@@ -192,7 +192,46 @@ function mwTmdbDetails(string $kind, int $id): ?array
     if ($name === '') return null;
     $date = (string)($j[$dateKey] ?? '');
     $year = preg_match('/^((?:19|20)\d{2})/', $date, $m) ? (int)$m[1] : null;
-    return ['id' => $id, 'name' => $name, 'year' => $year];
+    $genres = [];
+    foreach ($j['genres'] ?? [] as $g) {
+        if (!is_array($g) || empty($g['id'])) continue;
+        $gn = trim((string)($g['name'] ?? ''));
+        if ($gn === '') continue;
+        $genres[] = ['id' => (int)$g['id'], 'name' => $gn];
+    }
+    $type = null;
+    if ($kind === 'tv') {
+        $t = trim((string)($j['type'] ?? ''));
+        if ($t !== '') $type = $t;
+    }
+    return ['id' => $id, 'name' => $name, 'year' => $year, 'genres' => $genres, 'type' => $type];
+}
+
+/** @param list<array{id: int, name: string}> $genres */
+function mwTmdbGenreIdsCsv(array $genres): string
+{
+    $ids = [];
+    foreach ($genres as $g) {
+        $id = (int)($g['id'] ?? 0);
+        if ($id > 0) $ids[] = $id;
+    }
+    return implode(',', $ids);
+}
+
+/** @param list<array{id: int, name: string}> $genres */
+function mwTmdbUpsertGenres(\SQLite3 $db, array $genres): void
+{
+    if ($genres === []) return;
+    $st = $db->prepare('INSERT OR IGNORE INTO genres (id, name) VALUES (?, ?)');
+    foreach ($genres as $g) {
+        $id = (int)($g['id'] ?? 0);
+        $name = trim((string)($g['name'] ?? ''));
+        if ($id <= 0 || $name === '') continue;
+        $st->reset();
+        $st->bindValue(1, $id, SQLITE3_INTEGER);
+        $st->bindValue(2, $name);
+        $st->execute();
+    }
 }
 
 /** @return array{name: string}|null */

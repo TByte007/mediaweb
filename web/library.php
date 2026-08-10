@@ -10,11 +10,12 @@ $basePath = MW_BASE_URL;
 
 $search = trim($_GET['q'] ?? '');
 $len = $_GET['len'] ?? '';
+$genre = isset($_GET['genre']) && ctype_digit((string)$_GET['genre']) ? (int)$_GET['genre'] : 0;
 // [sql, label, hint]
 $lenFilters = [
-    'movie'  => ['duration_secs >= 3600', 'Movies', '≥1h'],
-    'series' => ['duration_secs >= 600 AND duration_secs < 3600', 'Series', '10–60m'],
-    'clip'   => ['duration_secs > 0 AND duration_secs < 600', 'Clips', '<10m'],
+    'movie'  => ['v.duration_secs >= 3600', 'Movies', '≥1h'],
+    'series' => ['v.duration_secs >= 600 AND v.duration_secs < 3600', 'Series', '10–60m'],
+    'clip'   => ['v.duration_secs > 0 AND v.duration_secs < 600', 'Clips', '<10m'],
 ];
 if (!isset($lenFilters[$len])) $len = '';
 
@@ -32,22 +33,34 @@ if (!file_exists($dbFile)) {
 $db = new SQLite3($dbFile);
 $db->busyTimeout(5000);
 
+$genreFilters = mwGenresForFilter($db);
+if ($genre > 0 && !in_array($genre, array_column($genreFilters, 'id'), true))
+    $genre = 0;
+
 // Build query (hide soft-deleted files)
-$where = ["is_deleted = 0"];
+$where = ['v.is_deleted = 0'];
 $params = [];
 
 if ($search) {
-    $where[] = "filename LIKE :q OR title LIKE :q OR directory LIKE :q OR name LIKE :q";
+    $where[] = 'v.filename LIKE :q OR v.title LIKE :q OR v.directory LIKE :q OR v.name LIKE :q';
     $params['q'] = "%$search%";
 }
 if ($len !== '') $where[] = $lenFilters[$len][0];
+if ($genre > 0) {
+    $where[] = "(
+        (v.series_id IS NOT NULL AND (',' || IFNULL(s.genre_ids,'') || ',') LIKE :genre_like)
+        OR (v.series_id IS NULL AND (',' || IFNULL(v.genre_ids,'') || ',') LIKE :genre_like)
+    )";
+    $params['genre_like'] = '%,'.$genre.',%';
+}
 
-$whereClause = "WHERE " . implode(" AND ", $where);
-$orderBy = $search ? "ORDER BY title ASC" : "ORDER BY playback_count DESC, id DESC";
+$whereClause = 'WHERE ' . implode(' AND ', $where);
+$orderBy = $search ? 'ORDER BY v.title ASC' : 'ORDER BY v.playback_count DESC, v.id DESC';
+$from = 'FROM videos v LEFT JOIN series s ON s.id = v.series_id';
 
-$sql = "SELECT id, filename, filepath, video_format, width, height, duration_secs,
-               filesize_bytes, audio_tracks, subtitle_tracks, title, playback_count, needs_fix, name
-        FROM videos $whereClause $orderBy
+$sql = "SELECT v.id, v.filename, v.filepath, v.video_format, v.width, v.height, v.duration_secs,
+               v.filesize_bytes, v.audio_tracks, v.subtitle_tracks, v.title, v.playback_count, v.needs_fix, v.name
+        $from $whereClause $orderBy
         LIMIT :limit OFFSET :offset";
 
 $stmt = $db->prepare($sql);
@@ -76,7 +89,7 @@ while ($row = $result->fetchArray(2)) {
 }
 $result->finalize();
 
-$countRow = $db->prepare("SELECT COUNT(*) FROM videos $whereClause");
+$countRow = $db->prepare("SELECT COUNT(*) $from $whereClause");
 if ($params) foreach ($params as $k => $v) $countRow->bindValue($k, $v);
 $total = (int)$countRow->execute()->fetchArray(2)[0];
 $db->close();
