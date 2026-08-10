@@ -156,27 +156,42 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
 .video-title-sub {
     font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--muted);
 }
+.info-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.info-chip {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid rgba(94,114,228,0.35);
+    background: rgba(94,114,228,0.14);
+    color: #c5cef5; text-decoration: none;
+    font-size: 12px; font-weight: 600; line-height: 1.2;
+}
+.info-chip:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.info-chip-tmdb {
+    border-color: rgba(1,180,228,0.4);
+    background: rgba(1,180,228,0.12);
+    color: #7dd3fc;
+}
+.info-chip-tmdb:hover { background: #01b4e4; border-color: #01b4e4; color: #031d29; }
 .meta-grid {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+    display: grid; grid-template-columns: repeat(12, 1fr); gap: 6px;
 }
 .meta {
-    border-radius: 8px; padding: 10px 12px 10px 14px;
+    border-radius: 6px; padding: 6px 8px 6px 10px;
     border: 1px solid rgba(255,255,255,0.05);
     border-left-width: 3px;
-    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+    display: flex; flex-direction: column; gap: 1px; min-width: 0;
 }
 .meta-k {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
     text-transform: uppercase;
 }
 .meta-v {
-    font-size: 15px; font-weight: 600; color: var(--text);
+    font-size: 13px; font-weight: 600; color: var(--text);
     font-variant-numeric: tabular-nums; line-height: 1.2;
-    overflow-wrap: anywhere;
 }
 .meta-v .meta-note {
-    display: block; margin-top: 2px;
-    font-size: 11px; font-weight: 500; color: var(--muted);
+    display: block; margin-top: 1px;
+    font-size: 10px; font-weight: 500; color: var(--muted);
+    white-space: nowrap;
 }
 .meta-codec { background: rgba(124,156,255,0.1); border-left-color: #7c9cff; }
 .meta-codec .meta-k { color: #9bb3ff; }
@@ -243,9 +258,15 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
     .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
     main { padding-left: 14px; padding-right: 14px; }
 }
+@media(max-width:1100px) {
+    .meta-grid { grid-template-columns: repeat(8, 1fr); }
+}
 @media(max-width:800px) {
     .view-grid { flex-direction: column; }
-    .meta-grid { grid-template-columns: repeat(2, 1fr); }
+    .meta-grid { grid-template-columns: repeat(6, 1fr); }
+}
+@media(max-width:480px) {
+    .meta-grid { grid-template-columns: repeat(4, 1fr); }
 }
 </style>
 </head>

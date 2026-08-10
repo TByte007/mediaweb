@@ -14,7 +14,8 @@ $db = new SQLite3(MW_DB);
 $db->busyTimeout(5000);
 $row = $db->querySingle("SELECT id, filename, filepath, video_format, width, height, duration_secs,
         filesize_bytes, audio_tracks, subtitle_tracks, title, playback_count, needs_fix, is_deleted,
-        series_id, season, episode, episode_title, name
+        series_id, season, episode, episode_title, name, tmdb_id, genre_ids,
+        video_bitrate, frame_rate
         FROM videos WHERE id = $id", true);
 
 if (!$row) { $db->close(); http_response_code(404); die('<h1>Not found</h1>'); }
@@ -31,7 +32,7 @@ $prevId = null;
 $nextId = null;
 if (!empty($row['series_id'])) {
     $seriesNav = $db->querySingle(
-        'SELECT id, title FROM series WHERE id = ' . (int)$row['series_id'],
+        'SELECT id, title, tmdb_id, genre_ids FROM series WHERE id = ' . (int)$row['series_id'],
         true
     );
     if ($seriesNav && $seasonNum !== null && $episodeNum !== null) {
@@ -40,7 +41,20 @@ if (!empty($row['series_id'])) {
         $nextId = neighborEpisodeId($db, $sid, $seasonNum, $episodeNum, true);
     }
 }
+$viewGenres = mwGenresFromCsv(
+    $db,
+    $seriesNav ? ($seriesNav['genre_ids'] ?? null) : ($row['genre_ids'] ?? null)
+);
 $db->close();
+
+$tmdbUrl = null;
+if ($seriesNav && !empty($seriesNav['tmdb_id'])) {
+    $tmdbUrl = 'https://www.themoviedb.org/tv/' . (int)$seriesNav['tmdb_id'];
+    if ($seasonNum !== null && $episodeNum !== null)
+        $tmdbUrl .= '/season/' . $seasonNum . '/episode/' . $episodeNum;
+} elseif (!empty($row['tmdb_id'])) {
+    $tmdbUrl = 'https://www.themoviedb.org/movie/' . (int)$row['tmdb_id'];
+}
 
 $v = [
     'id'               => (int)$row['id'],
@@ -53,6 +67,8 @@ $v = [
     'filesize_bytes'   => (int)$row['filesize_bytes'],
     'audio_tracks'     => (int)$row['audio_tracks'],
     'subtitle_tracks'  => (int)$row['subtitle_tracks'],
+    'video_bitrate'    => $row['video_bitrate'] !== null ? (int)$row['video_bitrate'] : null,
+    'frame_rate'       => $row['frame_rate'] !== null ? (string)$row['frame_rate'] : null,
     'title'            => episodePrettyTitle(
         (string)$row['filename'],
         $row['title'] ?? null,
@@ -147,6 +163,16 @@ $subsLabel = $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's
         <a class="view-nav-btn" href="<?= MW_BASE_URL ?>">&#8592; Library</a>
 <?php endif; ?>
     </nav>
+<?php if ($viewGenres !== [] || $tmdbUrl !== null): ?>
+    <div class="info-chips" aria-label="Title metadata">
+<?php foreach ($viewGenres as $g): ?>
+        <a class="info-chip" href="<?= MW_BASE_URL ?>?genre=<?= (int)$g['id'] ?>"><?= htmlspecialchars($g['name']) ?></a>
+<?php endforeach; ?>
+<?php if ($tmdbUrl !== null): ?>
+        <a class="info-chip info-chip-tmdb" href="<?= htmlspecialchars($tmdbUrl) ?>" target="_blank" rel="noopener noreferrer">TMDB</a>
+<?php endif; ?>
+    </div>
+<?php endif; ?>
     <div class="meta-grid">
         <div class="meta meta-codec">
             <span class="meta-k">Codec</span>
@@ -155,6 +181,18 @@ $subsLabel = $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's
         <div class="meta meta-res">
             <span class="meta-k">Resolution</span>
             <span class="meta-v"><?= $v['width'] ?>×<?= $v['height'] ?></span>
+        </div>
+        <div class="meta meta-res">
+            <span class="meta-k">Aspect</span>
+            <span class="meta-v"><?= fmtAspect($v['width'], $v['height']) ?></span>
+        </div>
+        <div class="meta meta-dur">
+            <span class="meta-k">FPS</span>
+            <span class="meta-v"><?= fmtFps($v['frame_rate']) ?></span>
+        </div>
+        <div class="meta meta-size">
+            <span class="meta-k">Bitrate</span>
+            <span class="meta-v"><?= fmtBitrate($v['video_bitrate']) ?></span>
         </div>
         <div class="meta meta-dur">
             <span class="meta-k">Duration</span>

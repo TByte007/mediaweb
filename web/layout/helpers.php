@@ -15,6 +15,54 @@ function fmtSize(int $bytes): string
     return round($bytes / 1_073_741_824, 1) . ' GB';
 }
 
+/** MediaInfo bitrate is bits/sec. */
+function fmtBitrate(?int $bps): string
+{
+    if ($bps === null || $bps <= 0) return '—';
+    if ($bps < 1_000_000) return round($bps / 1000) . ' kb/s';
+    return round($bps / 1_000_000, 1) . ' Mb/s';
+}
+
+function fmtFps(?string $fps): string
+{
+    if ($fps === null || $fps === '' || (float)$fps <= 0) return '—';
+    return rtrim(rtrim(sprintf('%.3f', (float)$fps), '0'), '.') . ' fps';
+}
+
+function fmtAspect(int $w, int $h): string
+{
+    if ($w < 1 || $h < 1) return '—';
+    $a = $w;
+    $b = $h;
+    while ($b !== 0) {
+        $t = $b;
+        $b = $a % $b;
+        $a = $t;
+    }
+    return intdiv($w, $a) . ':' . intdiv($h, $a);
+}
+
+/** @return list<array{id: int, name: string}> */
+function mwGenresFromCsv(\SQLite3 $db, ?string $csv): array
+{
+    if ($csv === null || $csv === '') return [];
+    $ids = [];
+    foreach (explode(',', $csv) as $p) {
+        $p = trim($p);
+        if ($p !== '' && ctype_digit($p)) $ids[] = (int)$p;
+    }
+    if ($ids === []) return [];
+    $byId = [];
+    $rs = $db->query('SELECT id, name FROM genres WHERE id IN (' . implode(',', $ids) . ')');
+    while ($row = $rs->fetchArray(SQLITE3_ASSOC))
+        $byId[(int)$row['id']] = (string)$row['name'];
+    $out = [];
+    foreach ($ids as $id) {
+        if (isset($byId[$id])) $out[] = ['id' => $id, 'name' => $byId[$id]];
+    }
+    return $out;
+}
+
 function cleanTitle(?string $t): string
 {
     if (!$t) return '';
