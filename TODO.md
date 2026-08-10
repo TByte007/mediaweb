@@ -6,7 +6,6 @@
 - [x] **TMDB enrichment** — in unified `enrichTitles()` after `linkSeries()`; `series.tmdb_id` / `videos.tmdb_id`; duration gate `MW_TMDB_MIN_SECS` (default 600); skip ATGM.
 - [x] **Unified title pipeline** — dirs/files → LLM search terms → TMDB → id; LLM/PHP gap-fill; `linkSeries` preserves title when `tmdb_id` set; `--force` refreshes from cached ids.
 - [x] **Double-episode filenames** — strip `&e02` / `-e02` from the title rest (keep first episode only); keep `Part 1 & 2` in `cleanEpisodeTitle`. No `episode_end` column.
-- [ ] **Reject truncated LLM episode names** — dangling tails (`Return to`, `Time to`, `One Little`) should fail validation and fall back (filename / PHP), not get saved.
 - [ ] **Admin / manual override** — small UI (or CLI) to edit `videos.name` / `series.title` without `--force` over the whole library.
 
 ## Series / library

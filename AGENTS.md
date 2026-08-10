@@ -26,7 +26,7 @@ php list.php --count --format=AVC
 php list.php --columns=filename,width,height,duration_secs,needs_fix
 ```
 
-**Default behavior:** Skips files already in DB (fast incremental scans). New files get MediaInfo + PTS/`needs_fix` detect. Missing files marked as `is_deleted=1`. Use `--force-rescan` to re-extract metadata; `--scan-only` to refresh `needs_fix` on candidates (no link/enrich).
+**Default behavior:** Skips files already in DB (fast incremental scans). New files get MediaInfo + PTS/`needs_fix` detect. New paths that match a gone file (same `filesize`+`filename`, else unique `filesize`) adopt that row instead of INSERT (keeps plays / names / ids). Missing files marked as `is_deleted=1`. Use `--force-rescan` to re-extract metadata; `--scan-only` to refresh `needs_fix` on candidates (no link/enrich).
 
 **Series linking + title enrich:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) then `enrichTitles()` in [`titles.php`](titles.php): **dirs/files → (LLM search terms) → TMDB → store id + canonical title + genre_ids (+ TV `tmdb_type`)**, then LLM/PHP gap-fill for misses. `linkSeries` does not overwrite `series.title` when `tmdb_id` is set. Layers run when configured; skip with empty `MW_TMDB_TOKEN` / `MW_LLM_URL`, unreachable llama, or `--no-tmdb` / `--no-llm` (folder/heur search only without LLM). `--force` refreshes titles (and genres) from cached TMDB ids (does not re-search). Missing `genre_ids` self-heal on a normal enrich. Web UI prefers `videos.name`; Library/Series support `?genre=` filter; Series cards show TV type. Never call TMDB or the LLM on page views. Use `php scan.php --titles-backfill` to relink + enrich without a MediaInfo walk.
 
@@ -111,7 +111,7 @@ npx esbuild node_modules/avbridge/dist/player.js --bundle --format=esm --platfor
 
 ## Deleted-file tracking
 
-Videos marked `is_deleted=1` when their file disappears between scans. They stay in the DB (playback counts kept) but are hidden from the library.
+Videos marked `is_deleted=1` when their file disappears between scans. They stay in the DB (playback counts kept) but are hidden from the library. A later scan that finds the same bytes under a new path (move between media roots, or rename when size is unique) adopts the row and clears `is_deleted`.
 
 Purge with: `DELETE FROM videos WHERE is_deleted=1;`
 

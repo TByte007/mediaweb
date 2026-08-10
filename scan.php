@@ -63,9 +63,10 @@ $dirList
 Behavior:
     Default:
         Incremental scan — new files get MediaInfo + needs_fix detect; known files skipped.
-        Missing files marked is_deleted=1. Then linkSeries() and enrichTitles()
-        (dirs/files → LLM search terms → TMDB → id; LLM/PHP gap-fill).
-        Layers skip if config empty or --no-*.
+        New paths that match a gone file (same size+name, else unique size) adopt that
+        row (keep plays / names / ids) instead of INSERT. Missing files marked is_deleted=1.
+        Then linkSeries() and enrichTitles() (dirs/files → LLM search terms → TMDB → id;
+        LLM/PHP gap-fill). Layers skip if config empty or --no-*.
 
     needs_fix (PTS / browser warning):
         Candidates: .avi, or MPEG-4 Part 2 / Xvid / DivX in any container
@@ -477,6 +478,40 @@ function upsertVideo(\SQLite3Stmt $stmt, string $path, array $json, int $needsFi
     $stmt->execute();
 }
 
+/** Adopt gone-path row onto $filepath (size+name, else unique size). Returns old path or null. */
+function adoptMovedVideo(\SQLite3 $db, string $filepath, array &$knownFiles): ?string
+{
+    $size = @filesize($filepath);
+    if ($size === false || $size <= 0) return null;
+    $name = basename($filepath);
+
+    $st = $db->prepare('SELECT id, filepath, filename FROM videos WHERE filesize_bytes = ? AND filepath != ?');
+    $st->bindValue(1, $size, SQLITE3_INTEGER);
+    $st->bindValue(2, $filepath, SQLITE3_TEXT);
+    $gone = [];
+    $rs = $st->execute();
+    while ($r = $rs->fetchArray(SQLITE3_ASSOC)) {
+        if (!is_file($r['filepath'])) $gone[] = $r;
+    }
+    $named = array_values(array_filter($gone, fn($r) => $r['filename'] === $name));
+    $row = count($named) === 1 ? $named[0] : (count($gone) === 1 ? $gone[0] : null);
+    if ($row === null) return null;
+
+    $clear = ($row['filename'] !== $name) ? ', name = NULL, tmdb_id = NULL, genre_ids = NULL' : '';
+    $up = $db->prepare(
+        "UPDATE videos SET filepath = ?, filename = ?, directory = ?, is_deleted = 0,
+         updated_at = datetime('now')$clear WHERE id = ?"
+    );
+    $up->bindValue(1, $filepath, SQLITE3_TEXT);
+    $up->bindValue(2, $name, SQLITE3_TEXT);
+    $up->bindValue(3, dirname($filepath), SQLITE3_TEXT);
+    $up->bindValue(4, (int)$row['id'], SQLITE3_INTEGER);
+    $up->execute();
+
+    unset($knownFiles[$row['filepath']]);
+    return $row['filepath'];
+}
+
 $files = [];
 foreach ($scanDirs as $scanDir) {
     safeWalk($scanDir, $files, $extensions, $verbose);
@@ -491,6 +526,7 @@ $skipped   = 0;
 $errors    = 0;
 $flagged   = 0;
 $updated   = 0;
+$moved     = 0;
 
 foreach ($files as $filepath) {
     $processed++;
@@ -498,6 +534,16 @@ foreach ($files as $filepath) {
     $ext = strtolower(pathinfo($filepath, PATHINFO_EXTENSION));
     $isAvi = ($ext === 'avi');
     $known = isset($knownFiles[$filepath]);
+
+    if (!$known) {
+        $from = adoptMovedVideo($db, $filepath, $knownFiles);
+        if ($from !== null) {
+            $known = true;
+            $moved++;
+            if ($verbose) echo "  [MOVE] $from → $filepath\n";
+            if (!$forceRescan && !$scanOnly) continue;
+        }
+    }
 
     // --scan-only: refresh needs_fix for AVIs + legacy MPEG-4/Xvid in any container.
     if ($scanOnly) {
@@ -631,6 +677,7 @@ if (!$scanOnly) {
 echo "\nScan complete.\n";
 echo "  Processed: $processed\n";
 echo "  Skipped:   $skipped (already in database)\n";
+if ($moved > 0) echo "  Moved:     $moved (adopted existing row)\n";
 if ($scanOnly) echo "  Updated:   $updated (needs_fix refreshed)\n";
 echo "  Flagged:   $flagged (needs_fix / PTS browser warning)\n";
 echo "  Errors:    $errors\n";
