@@ -6,10 +6,11 @@ PHP tool that scans video directories, extracts metadata with MediaInfo, stores 
 
 - Incremental directory scans (new files only by default)
 - MediaInfo → SQLite catalog (`media.db`)
-- Web library with search, thumbnails, and play counts
-- **Series mode** (`?mode=series`): browse show → season → episodes (detected at scan time)
+- **Move adopt** — same file under a new path (e.g. between media roots) reuses the DB row (plays / names / ids); soft-delete when files disappear
+- Title enrich after each scan: folder/filename → (optional LLM search terms) → TMDB → `name` / `series.title`, genres, TV type; LLM/PHP gap-fill
+- Web library with search, genre filter (`?genre=`), thumbnails, and play counts
+- **Series mode** (`?mode=series`): browse show → season → episodes (detected at scan time); series cards show TMDB TV type
 - Browser playback via movi-player; **avbridge** (libav WASM) for files flagged `needs_fix`
-- Soft-delete tracking when files disappear between scans
 
 ## Requirements
 
@@ -49,7 +50,7 @@ php list.php --count --format=AVC
 php list.php --columns=filename,width,height,duration_secs,needs_fix
 ```
 
-**Default scan:** skip files already in the DB; probe new ones; mark missing rows `is_deleted=1` (hidden from the library, kept for play counts). Then `linkSeries()` + `enrichTitles()` (dirs/files → LLM search terms → TMDB → id; LLM/PHP gap-fill). Cron: `php scan.php` is enough when keys are set; use `--titles-backfill --force` to refresh names from cached TMDB ids.
+**Default scan:** skip files already in the DB; probe new ones; adopt moved files (same size+name, else unique size when the old path is gone); mark missing rows `is_deleted=1`. Then `linkSeries()` + `enrichTitles()`. Cron: `php scan.php` is enough when keys are set; use `--titles-backfill --force` to refresh names from cached TMDB ids.
 
 ## Config
 
