@@ -1,6 +1,6 @@
 # MediaWeb
 
-PHP tool that scans video directories, extracts metadata with MediaInfo, stores it in SQLite, and serves a small web library for browsing and playback.
+PHP tool that scans video directories, extracts metadata with MediaInfo, and stores it in SQLite. A web interface under `web/` lets you browse the library with search and genre filters, open series by show → season → episode, view thumbnails and play counts, and play videos in the browser (movi-player normally; avbridge for files marked `needs_fix`).
 
 ## Features
 
