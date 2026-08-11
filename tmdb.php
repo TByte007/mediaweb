@@ -17,6 +17,26 @@ function mwTmdbMinSecs(): int
     return defined('MW_TMDB_MIN_SECS') ? max(0, (int)MW_TMDB_MIN_SECS) : 600;
 }
 
+/** Base days ± hash jitter for row id (−jitter…+jitter). */
+function mwTmdbRefreshIntervalDays(int $id): int
+{
+    $days = defined('MW_TMDB_REFRESH_DAYS') ? max(1, (int)MW_TMDB_REFRESH_DAYS) : 7;
+    $j = defined('MW_TMDB_REFRESH_JITTER') ? max(0, (int)MW_TMDB_REFRESH_JITTER) : 3;
+    if ($j <= 0) return $days;
+    $span = 2 * $j + 1;
+    return $days + ((int)(($id * 2654435761) % $span) - $j);
+}
+
+/** Due for details refresh when tmdb_id is set. */
+function mwTmdbMetaDue(array $row, int $id): bool
+{
+    $stamp = $row['tmdb_refreshed_at'] ?? null;
+    if ($stamp === null || $stamp === '') return true;
+    $ref = strtotime((string)$stamp);
+    if ($ref === false) return true;
+    return ((time() - $ref) / 86400.0) >= mwTmdbRefreshIntervalDays($id);
+}
+
 /** @return array<string, mixed>|null */
 function mwTmdbGet(string $path, array $query = []): ?array
 {
@@ -181,7 +201,7 @@ function mwTmdbSearchMovie(string $query, ?int $year = null): ?array
     return mwTmdbSearch('movie', $query, $year);
 }
 
-/** @return array{id: int, name: string, year: ?int, genres: list<array{id: int, name: string}>, type: ?string}|null */
+/** @return array{id: int, name: string, year: ?int, genres: list<array{id: int, name: string}>, type: ?string, vote_average: ?float, poster_path: ?string}|null */
 function mwTmdbDetails(string $kind, int $id): ?array
 {
     $j = mwTmdbGet("$kind/$id");
@@ -204,7 +224,18 @@ function mwTmdbDetails(string $kind, int $id): ?array
         $t = trim((string)($j['type'] ?? ''));
         if ($t !== '') $type = $t;
     }
-    return ['id' => $id, 'name' => $name, 'year' => $year, 'genres' => $genres, 'type' => $type];
+    $vote = isset($j['vote_average']) && is_numeric($j['vote_average'])
+        ? round((float)$j['vote_average'], 1) : null;
+    $poster = trim((string)($j['poster_path'] ?? ''));
+    return [
+        'id' => $id,
+        'name' => $name,
+        'year' => $year,
+        'genres' => $genres,
+        'type' => $type,
+        'vote_average' => $vote,
+        'poster_path' => $poster !== '' ? $poster : null,
+    ];
 }
 
 /** @param list<array{id: int, name: string}> $genres */

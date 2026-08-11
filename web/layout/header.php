@@ -164,7 +164,12 @@ avbridge-player::part(video) { position: absolute; inset: 0; width: 100%; height
     color: #c5cef5; text-decoration: none;
     font-size: 12px; font-weight: 600; line-height: 1.2;
 }
-.info-chip:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+a.info-chip:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.info-chip-score {
+    border-color: rgba(251,191,36,0.4);
+    background: rgba(251,191,36,0.12);
+    color: #fcd34d;
+}
 .info-chip-tmdb {
     border-color: rgba(1,180,228,0.4);
     background: rgba(1,180,228,0.12);

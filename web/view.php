@@ -14,7 +14,7 @@ $db = new SQLite3(MW_DB);
 $db->busyTimeout(5000);
 $row = $db->querySingle("SELECT id, filename, filepath, video_format, width, height, duration_secs,
         filesize_bytes, audio_tracks, subtitle_tracks, title, playback_count, needs_fix, is_deleted,
-        series_id, season, episode, episode_title, name, tmdb_id, genre_ids,
+        series_id, season, episode, episode_title, name, tmdb_id, genre_ids, vote_average,
         video_bitrate, frame_rate
         FROM videos WHERE id = $id", true);
 
@@ -32,7 +32,7 @@ $prevId = null;
 $nextId = null;
 if (!empty($row['series_id'])) {
     $seriesNav = $db->querySingle(
-        'SELECT id, title, tmdb_id, genre_ids FROM series WHERE id = ' . (int)$row['series_id'],
+        'SELECT id, title, tmdb_id, genre_ids, vote_average FROM series WHERE id = ' . (int)$row['series_id'],
         true
     );
     if ($seriesNav && $seasonNum !== null && $episodeNum !== null) {
@@ -45,6 +45,8 @@ $viewGenres = mwGenresFromCsv(
     $db,
     $seriesNav ? ($seriesNav['genre_ids'] ?? null) : ($row['genre_ids'] ?? null)
 );
+$voteRaw = $seriesNav ? ($seriesNav['vote_average'] ?? null) : ($row['vote_average'] ?? null);
+$voteAverage = is_numeric($voteRaw) ? round((float)$voteRaw, 1) : null;
 $db->close();
 
 $tmdbUrl = null;
@@ -163,8 +165,11 @@ $subsLabel = $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's
         <a class="view-nav-btn" href="<?= MW_BASE_URL ?>">&#8592; Library</a>
 <?php endif; ?>
     </nav>
-<?php if ($viewGenres !== [] || $tmdbUrl !== null): ?>
+<?php if ($viewGenres !== [] || $tmdbUrl !== null || $voteAverage !== null): ?>
     <div class="info-chips" aria-label="Title metadata">
+<?php if ($voteAverage !== null): ?>
+        <span class="info-chip info-chip-score">Score: <?= number_format($voteAverage, 1) ?></span>
+<?php endif; ?>
 <?php foreach ($viewGenres as $g): ?>
         <a class="info-chip" href="<?= MW_BASE_URL ?>?genre=<?= (int)$g['id'] ?>"><?= htmlspecialchars($g['name']) ?></a>
 <?php endforeach; ?>

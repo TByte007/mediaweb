@@ -1,8 +1,7 @@
 <?php
 
 /**
- * Extract and cache a non-black cover frame from a video.
- * Falls back to existing cover images in video directories.
+ * Cover image: TMDB poster (cached) → folder sidecar → ffmpeg frame.
  */
 
 declare(strict_types=1);
@@ -26,7 +25,14 @@ if (!file_exists($dbFile)) {
 
 $db = new SQLite3($dbFile);
 $db->busyTimeout(5000);
-$row = $db->querySingle("SELECT filepath, duration_secs FROM videos WHERE id = $id", true);
+$row = $db->querySingle(
+    "SELECT v.filepath, v.duration_secs,
+            CASE WHEN v.series_id IS NOT NULL THEN s.poster_path ELSE v.poster_path END AS poster_path
+     FROM videos v
+     LEFT JOIN series s ON s.id = v.series_id
+     WHERE v.id = $id",
+    true
+);
 $db->close();
 
 if (!$row || empty($row['filepath']) || !file_exists($row['filepath'])) {
@@ -39,6 +45,43 @@ $coverDir = __DIR__ . '/covers';
 $cacheKey = hash('xxh64', $filepath);
 $cachePath = $coverDir . '/' . $cacheKey . '.jpg';
 $dir = dirname($filepath);
+
+$posterPath = trim((string)($row['poster_path'] ?? ''));
+if ($posterPath !== '') {
+    $tmdbCache = $coverDir . '/tmdb_' . hash('xxh64', $posterPath) . '.jpg';
+    if (file_exists($tmdbCache) && filesize($tmdbCache) >= 1024) {
+        readfile($tmdbCache);
+        exit;
+    }
+    $ch = curl_init('https://image.tmdb.org/t/p/w342' . $posterPath);
+    $opts = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_CONNECTTIMEOUT => 5,
+    ];
+    if (PHP_OS_FAMILY === 'Windows')
+        $opts[CURLOPT_SSL_VERIFYPEER] = false;
+    curl_setopt_array($ch, $opts);
+    $body = curl_exec($ch);
+    $http = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if (is_string($body) && $http === 200 && strlen($body) >= 1024) {
+        $tmpPoster = $tmdbCache . '.tmp';
+        if (@file_put_contents($tmpPoster, $body) !== false) {
+            @unlink($tmdbCache);
+            if (!@rename($tmpPoster, $tmdbCache)) {
+                @copy($tmpPoster, $tmdbCache);
+                @unlink($tmpPoster);
+            }
+            if (file_exists($tmdbCache)) {
+                readfile($tmdbCache);
+                exit;
+            }
+        }
+        @unlink($tmpPoster);
+    }
+}
 
 if (file_exists($cachePath) && filemtime($cachePath) >= filemtime($filepath)) {
     readfile($cachePath);

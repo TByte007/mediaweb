@@ -28,7 +28,7 @@ php list.php --columns=filename,width,height,duration_secs,needs_fix
 
 **Default behavior:** Skips files already in DB (fast incremental scans). New files get MediaInfo + PTS/`needs_fix` detect. New paths that match a gone file (same `filesize`+`filename`, else unique `filesize`) adopt that row instead of INSERT (keeps plays / names / ids). Missing files marked as `is_deleted=1`. Use `--force-rescan` to re-extract metadata; `--scan-only` to refresh `needs_fix` on candidates (no link/enrich).
 
-**Series linking + title enrich:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) then `enrichTitles()` in [`titles.php`](titles.php): **dirs/files → (LLM search terms) → TMDB → store id + canonical title + genre_ids (+ TV `tmdb_type`)**, then LLM/PHP gap-fill for misses. `linkSeries` does not overwrite `series.title` when `tmdb_id` is set. Layers run when configured; skip with empty `MW_TMDB_TOKEN` / `MW_LLM_URL`, unreachable llama, or `--no-tmdb` / `--no-llm` (folder/heur search only without LLM). `--force` refreshes titles (and genres) from cached TMDB ids (does not re-search). Missing `genre_ids` self-heal on a normal enrich. Web UI prefers `videos.name`; Library/Series support `?genre=` filter; Series cards show TV type. Never call TMDB or the LLM on page views. Use `php scan.php --titles-backfill` to relink + enrich without a MediaInfo walk.
+**Series linking + title enrich:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) then `enrichTitles()` in [`titles.php`](titles.php): **dirs/files → (LLM search terms) → TMDB → store id + canonical title + genre_ids + vote_average + poster_path (+ TV `tmdb_type`)**, then LLM/PHP gap-fill for misses. `linkSeries` does not overwrite `series.title` when `tmdb_id` is set. Layers run when configured; skip with empty `MW_TMDB_TOKEN` / `MW_LLM_URL`, unreachable llama, or `--no-tmdb` / `--no-llm` (folder/heur search only without LLM). Details refresh for score/poster runs **only when `tmdb_id` is set**; null stamp or weekly-ish age (hash jitter ± days) marks due. `--force` refreshes titles/meta from cached TMDB ids (does not re-search; not needed for first score fill). Web UI prefers `videos.name`; Library/Series support `?genre=` filter; Series cards show TV type; player shows score chip. `getcover.php`: TMDB poster cache → folder sidecar → ffmpeg. Never call TMDB API or the LLM on page views. Use `php scan.php --titles-backfill` to relink + enrich without a MediaInfo walk.
 
 ## Config (`config.php`)
 
@@ -37,6 +37,7 @@ php list.php --columns=filename,width,height,duration_secs,needs_fix
 - `MW_FFMPEG`: `/usr/local/bin/ffmpeg` (not on www's PATH)
 - `MW_MEDIA_DIRS`: media roots `[ ['fs' => filesystem_path, 'url' => apache_url_prefix], ... ]`
 - `MW_TMDB_TOKEN` / `MW_TMDB_MIN_SECS`: optional TMDB in enrich (empty token disables; min secs default 600)
+- `MW_TMDB_REFRESH_DAYS` / `MW_TMDB_REFRESH_JITTER`: score/poster re-poll interval (default 7±3 days)
 - `MW_LLM_URL` / `MW_LLM_MODEL` / `MW_LLM_TIMEOUT` / `MW_LLM_PARALLEL`: optional llama-server in enrich (empty URL disables; parallel = concurrent chat requests, 1=serial)
 
   Example:
@@ -130,7 +131,7 @@ web/series.php         → Series mode: shows → seasons → episodes
 series.php             → parseEpisodeFields / linkSeries (used by scan + web)
 web/view.php → video player (movi-player normally; avbridge-player for needs_fix=1)
 web/vendor/avbridge/ → avbridge player-browser + libav WASM (lazy-loaded)
-web/getcover.php       → cached non-black thumbnail generation
+web/getcover.php       → TMDB poster cache, else folder cover, else ffmpeg frame
 web/increment-play.php → AJAX endpoint for playback count
 web/layout/*           → shared layout components
 ```
@@ -158,7 +159,7 @@ This design is intentionally decoupled from the storage root; you can point URL 
 - `fetchArray(SQLite3::NUM)` is broken on this BSD setup → use `2` for numeric mode
 - Covers directory `web/covers/` must be writable (0777) by Apache `www` user
 - **ffmpeg not on www user's PATH!** → Use `/usr/local/bin/ffmpeg` explicitly (`MW_FFMPEG` constant)
-- Many video directories already contain `cover.jpg` / `thumb.jpg` files → `getcover.php` checks these first before extracting frames
+- Many video directories already contain `cover.jpg` / `thumb.jpg` files → `getcover.php` uses TMDB poster when `poster_path` is set, else these sidecars, else ffmpeg frames
 - **Never suggest server remux/re-encode to H.264** to fix browser playback / `needs_fix` — not feasible; use avbridge + Firefox swscale→RGBA in `player-browser.js`
 
 ## FreeBSD notes

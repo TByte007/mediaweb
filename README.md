@@ -7,10 +7,10 @@ PHP tool that scans video directories, extracts metadata with MediaInfo, and sto
 - Incremental directory scans (new files only by default)
 - MediaInfo → SQLite catalog (`media.db`)
 - **Move adopt** — same file under a new path (e.g. between media roots) reuses the DB row (plays / names / ids); soft-delete when files disappear
-- Title enrich after each scan: folder/filename → (optional LLM search terms) → TMDB → `name` / `series.title`, genres, TV type; LLM/PHP gap-fill
-- Web library with search, genre filter (`?genre=`), thumbnails, and play counts
+- Title enrich after each scan: folder/filename → (optional LLM search terms) → TMDB → `name` / `series.title`, genres, TV type, score, poster; LLM/PHP gap-fill
+- Web library with search, genre filter (`?genre=`), thumbnails (TMDB poster when known), and play counts
 - **Series mode** (`?mode=series`): browse show → season → episodes (detected at scan time); series cards show TMDB TV type
-- Browser playback via movi-player; **avbridge** (libav WASM) for files flagged `needs_fix`
+- Browser playback via movi-player; **avbridge** (libav WASM) for files flagged `needs_fix`; player shows TMDB score when enrich has filled it
 
 ## Requirements
 
@@ -50,7 +50,7 @@ php list.php --count --format=AVC
 php list.php --columns=filename,width,height,duration_secs,needs_fix
 ```
 
-**Default scan:** skip files already in the DB; probe new ones; adopt moved files (same size+name, else unique size when the old path is gone); mark missing rows `is_deleted=1`. Then `linkSeries()` + `enrichTitles()`. Cron: `php scan.php` is enough when keys are set; use `--titles-backfill --force` to refresh names from cached TMDB ids.
+**Default scan:** skip files already in the DB; probe new ones; adopt moved files (same size+name, else unique size when the old path is gone); mark missing rows `is_deleted=1`. Then `linkSeries()` + `enrichTitles()`. Cron: `php scan.php` is enough when keys are set — it also fills score/poster for rows that already have `tmdb_id` and re-polls them on a weekly-ish schedule. Use `--titles-backfill --force` only for a full display-name rebuild from cached TMDB ids.
 
 ## Config
 
@@ -64,6 +64,8 @@ Shared constants live in `config.php` (gitignored). Start from `config.example.p
 | `MW_MEDIA_DIRS` | Media roots: `[ 'fs' => path, 'url' => apache_prefix ]` |
 | `MW_TMDB_TOKEN` | Optional TMDB Read Access Token for enrich (empty disables) |
 | `MW_TMDB_MIN_SECS` | Min `duration_secs` for TMDB video queries (default 600 = 10m) |
+| `MW_TMDB_REFRESH_DAYS` | Re-poll score/poster after this many days (default 7) |
+| `MW_TMDB_REFRESH_JITTER` | ± days hash jitter on refresh interval (default 3) |
 | `MW_LLM_URL` | Optional llama-server base URL for enrich (empty disables) |
 | `MW_LLM_MODEL` | Model id (required on multi-model routers) |
 | `MW_LLM_TIMEOUT` | Chat request timeout seconds (default 60) |
@@ -71,7 +73,7 @@ Shared constants live in `config.php` (gitignored). Start from `config.example.p
 
 Each storage entry is independent: `[ 'fs' => '/path/on/disk', 'url' => '/apache_prefix/' ]`. Only the URL prefixes need to be public.
 
-Display titles: MediaInfo stays in `videos.title`; enrich discovers TMDB ids from folder/filename (LLM proposes search terms), then writes `videos.name` / `series.title` plus `genre_ids` (and series `tmdb_type`) from TMDB (UI prefers `name`; Library/Series filter with `?genre=`). Never call TMDB or the LLM from page views. Test overrides: `--no-tmdb` / `--no-llm`.
+Display titles: MediaInfo stays in `videos.title`; enrich discovers TMDB ids from folder/filename (LLM proposes search terms), then writes `videos.name` / `series.title` plus `genre_ids`, `vote_average`, `poster_path`, and `tmdb_refreshed_at` (and series `tmdb_type`) from TMDB. Rows without `tmdb_id` are not re-queried for score/poster. Known ids with a null stamp (or past the jittered interval) refresh on ordinary `php scan.php`. UI prefers `name`; Library/Series filter with `?genre=`; player shows score; `getcover.php` prefers a cached TMDB poster then folder art then ffmpeg. Never call the TMDB API or the LLM from page views (image CDN only for posters). Test overrides: `--no-tmdb` / `--no-llm`. `--force` rebuilds display names from cached ids — not required for score/poster backfill.
 
 ## Browser playback and `needs_fix`
 

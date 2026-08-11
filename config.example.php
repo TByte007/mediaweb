@@ -29,6 +29,8 @@ if (!defined('MW_ROOT')) {
     // Optional TMDB for title enrich via LLM search terms (empty token disables; --no-tmdb also skips)
     define('MW_TMDB_TOKEN', '');               // Read Access Token (Bearer), not the API Key
     define('MW_TMDB_MIN_SECS', 600);           // skip clips; 600=10m (UI Series floor); try 900 for 15m
+    define('MW_TMDB_REFRESH_DAYS', 7);         // re-poll score/poster after this many days
+    define('MW_TMDB_REFRESH_JITTER', 3);       // ± days hash jitter on refresh interval
 
     // Media roots — each entry: [ 'fs' => filesystem path, 'url' => Apache URL prefix ]
     define('MW_MEDIA_DIRS', [
