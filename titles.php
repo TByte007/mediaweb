@@ -285,16 +285,17 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
     }
 
     $stmtEp = $db->prepare(
-        'UPDATE videos SET name = ?, updated_at = datetime(\'now\') WHERE id = ?'
+        'UPDATE videos SET name = ?, vote_average = ?, updated_at = datetime(\'now\') WHERE id = ?'
     );
     $sqlEp = 'SELECT v.id, v.filepath, v.duration_secs, v.season, v.episode,
-                     v.episode_title, s.title AS series_title, s.tmdb_id
+                     v.episode_title, v.name, v.vote_average, s.title AS series_title, s.tmdb_id
               FROM videos v
               JOIN series s ON s.id = v.series_id
               WHERE v.is_deleted = 0
                 AND v.season IS NOT NULL AND v.episode IS NOT NULL
                 AND s.tmdb_id IS NOT NULL';
-    if (!$force) $sqlEp .= ' AND (v.name IS NULL OR v.name = \'\')';
+    if (!$force)
+        $sqlEp .= ' AND ((v.name IS NULL OR v.name = \'\') OR v.vote_average IS NULL OR v.vote_average <= 0)';
     $sqlEp .= ' ORDER BY v.id';
     $epRows = [];
     $rv = $db->query($sqlEp);
@@ -317,6 +318,7 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $episode = (int)$row['episode'];
         $show = (string)$row['series_title'];
         $localEp = trim((string)($row['episode_title'] ?? ''));
+        $hasName = $row['name'] !== null && $row['name'] !== '';
         $ep = mwTmdbTvEpisode((int)$row['tmdb_id'], $season, $episode);
         if ($localEp !== '') {
             if ($ep !== null && mwTmdbTitlesAgree($localEp, $ep['name'])) {
@@ -335,15 +337,18 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             continue;
         }
         $code = sprintf('S%02dE%02d', $season, $episode);
-        $out = "$show: $epName $code";
+        $out = (!$force && $hasName) ? (string)$row['name'] : "$show: $epName $code";
+        $vote = ($ep !== null) ? ($ep['vote_average'] ?? null) : null;
         $stmtEp->reset();
         $stmtEp->bindValue(1, $out);
-        $stmtEp->bindValue(2, $id, SQLITE3_INTEGER);
+        $stmtEp->bindValue(2, $vote, $vote !== null ? SQLITE3_FLOAT : SQLITE3_NULL);
+        $stmtEp->bindValue(3, $id, SQLITE3_INTEGER);
         if (!$dbExec($stmtEp)) {
             echo "tmdb video #$id  →  (db locked)\n";
             continue;
         }
-        echo "tmdb video #$id | $show | $code  →  $out ($via)\n";
+        $score = $vote !== null ? " score=$vote" : '';
+        echo "tmdb video #$id | $show | $code  →  $out ($via)$score\n";
         $epNamed++;
     }
 

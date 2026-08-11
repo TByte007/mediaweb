@@ -226,6 +226,7 @@ function mwTmdbDetails(string $kind, int $id): ?array
     }
     $vote = isset($j['vote_average']) && is_numeric($j['vote_average'])
         ? round((float)$j['vote_average'], 1) : null;
+    if ($vote !== null && $vote <= 0) $vote = null;
     $poster = trim((string)($j['poster_path'] ?? ''));
     return [
         'id' => $id,
@@ -265,14 +266,17 @@ function mwTmdbUpsertGenres(\SQLite3 $db, array $genres): void
     }
 }
 
-/** @return array{name: string}|null */
+/** @return array{name: string, vote_average: ?float}|null */
 function mwTmdbTvEpisode(int $tvId, int $season, int $episode): ?array
 {
     $j = mwTmdbGet("tv/$tvId/season/$season/episode/$episode");
     if ($j === null) return null;
     $name = trim((string)($j['name'] ?? ''));
     if ($name === '') return null;
-    return ['name' => $name];
+    $vote = isset($j['vote_average']) && is_numeric($j['vote_average'])
+        ? round((float)$j['vote_average'], 1) : null;
+    if ($vote !== null && $vote <= 0) $vote = null;
+    return ['name' => $name, 'vote_average' => $vote];
 }
 
 function mwTmdbFormatShowTitle(string $name, ?int $year): string

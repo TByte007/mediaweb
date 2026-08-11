@@ -45,8 +45,17 @@ $viewGenres = mwGenresFromCsv(
     $db,
     $seriesNav ? ($seriesNav['genre_ids'] ?? null) : ($row['genre_ids'] ?? null)
 );
-$voteRaw = $seriesNav ? ($seriesNav['vote_average'] ?? null) : ($row['vote_average'] ?? null);
-$voteAverage = is_numeric($voteRaw) ? round((float)$voteRaw, 1) : null;
+$seriesScore = null;
+$episodeScore = null;
+$movieScore = null;
+if ($seriesNav) {
+    if (is_numeric($seriesNav['vote_average'] ?? null) && (float)$seriesNav['vote_average'] > 0)
+        $seriesScore = round((float)$seriesNav['vote_average'], 1);
+    if (is_numeric($row['vote_average'] ?? null) && (float)$row['vote_average'] > 0)
+        $episodeScore = round((float)$row['vote_average'], 1);
+} elseif (is_numeric($row['vote_average'] ?? null) && (float)$row['vote_average'] > 0) {
+    $movieScore = round((float)$row['vote_average'], 1);
+}
 $db->close();
 
 $tmdbUrl = null;
@@ -165,10 +174,16 @@ $subsLabel = $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's
         <a class="view-nav-btn" href="<?= MW_BASE_URL ?>">&#8592; Library</a>
 <?php endif; ?>
     </nav>
-<?php if ($viewGenres !== [] || $tmdbUrl !== null || $voteAverage !== null): ?>
+<?php if ($viewGenres !== [] || $tmdbUrl !== null || $seriesScore !== null || $episodeScore !== null || $movieScore !== null): ?>
     <div class="info-chips" aria-label="Title metadata">
-<?php if ($voteAverage !== null): ?>
-        <span class="info-chip info-chip-score">Score: <?= number_format($voteAverage, 1) ?></span>
+<?php if ($seriesScore !== null): ?>
+        <span class="info-chip info-chip-score">Score: <?= number_format($seriesScore, 1) ?></span>
+<?php endif; ?>
+<?php if ($episodeScore !== null): ?>
+        <span class="info-chip info-chip-score">Episode: <?= number_format($episodeScore, 1) ?></span>
+<?php endif; ?>
+<?php if ($movieScore !== null): ?>
+        <span class="info-chip info-chip-score">Score: <?= number_format($movieScore, 1) ?></span>
 <?php endif; ?>
 <?php foreach ($viewGenres as $g): ?>
         <a class="info-chip" href="<?= MW_BASE_URL ?>?genre=<?= (int)$g['id'] ?>"><?= htmlspecialchars($g['name']) ?></a>
