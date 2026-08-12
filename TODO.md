@@ -8,11 +8,6 @@
 - [x] **Double-episode filenames** — strip `&e02` / `-e02` from the title rest (keep first episode only); keep `Part 1 & 2` in `cleanEpisodeTitle`. No `episode_end` column.
 - [ ] **Admin / manual override** — small UI (or CLI) to edit `videos.name` / `series.title` without `--force` over the whole library.
 
-## Series / library
-
-- [ ] **ATGM (and similar dump “shows”)** — keep as series for browse if useful, but consider a flag or UI hint so they don’t get the same title expectations as scripted TV; skip TMDB for those roots.
-- [ ] **Series cover picks** — prefer a mid-season episode or existing `cover.jpg` over whatever `linkSeries` first finds.
-
 ## Ops / polish
 
 - [x] **Cron** — incremental `php scan.php` already enriches title gaps when TMDB/LLM are configured; `--titles-backfill --force` refreshes from cached TMDB ids; `--no-tmdb` / `--no-llm` for tests.
