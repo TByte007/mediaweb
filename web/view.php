@@ -14,7 +14,7 @@ $db = new SQLite3(MW_DB);
 $db->busyTimeout(5000);
 $row = $db->querySingle("SELECT id, filename, filepath, video_format, width, height, duration_secs,
         filesize_bytes, audio_tracks, subtitle_tracks, title, playback_count, needs_fix, is_deleted,
-        series_id, season, episode, episode_title, name, tmdb_id, genre_ids, vote_average,
+        series_id, season, episode, episode_title, name, tmdb_id, genre_ids, vote_average, overview,
         video_bitrate, frame_rate
         FROM videos WHERE id = $id", true);
 
@@ -49,13 +49,14 @@ $seriesScore = null;
 $episodeScore = null;
 $movieScore = null;
 if ($seriesNav) {
-    if (is_numeric($seriesNav['vote_average'] ?? null) && (float)$seriesNav['vote_average'] > 0)
+    if ($seriesNav['vote_average'] !== null && (float)$seriesNav['vote_average'] > 0)
         $seriesScore = round((float)$seriesNav['vote_average'], 1);
-    if (is_numeric($row['vote_average'] ?? null) && (float)$row['vote_average'] > 0)
+    if ($row['vote_average'] !== null && (float)$row['vote_average'] > 0)
         $episodeScore = round((float)$row['vote_average'], 1);
-} elseif (is_numeric($row['vote_average'] ?? null) && (float)$row['vote_average'] > 0) {
+} elseif ($row['vote_average'] !== null && (float)$row['vote_average'] > 0) {
     $movieScore = round((float)$row['vote_average'], 1);
 }
+$viewOverview = trim((string)($row['overview'] ?? ''));
 $db->close();
 
 $tmdbUrl = null;
@@ -192,6 +193,9 @@ $subsLabel = $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's
         <a class="info-chip info-chip-tmdb" href="<?= htmlspecialchars($tmdbUrl) ?>" target="_blank" rel="noopener noreferrer">TMDB</a>
 <?php endif; ?>
     </div>
+<?php endif; ?>
+<?php if ($viewOverview !== ''): ?>
+    <p class="tmdb-overview"><?= htmlspecialchars($viewOverview) ?></p>
 <?php endif; ?>
     <div class="meta-grid">
         <div class="meta meta-codec">

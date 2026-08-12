@@ -201,7 +201,7 @@ function mwTmdbSearchMovie(string $query, ?int $year = null): ?array
     return mwTmdbSearch('movie', $query, $year);
 }
 
-/** @return array{id: int, name: string, year: ?int, genres: list<array{id: int, name: string}>, type: ?string, vote_average: ?float, poster_path: ?string}|null */
+/** @return array{id: int, name: string, year: ?int, genres: list<array{id: int, name: string}>, type: ?string, vote_average: ?float, poster_path: ?string, overview: ?string, seasons: list<array{season: int, poster_path: ?string, overview: ?string}>}|null */
 function mwTmdbDetails(string $kind, int $id): ?array
 {
     $j = mwTmdbGet("$kind/$id");
@@ -220,14 +220,27 @@ function mwTmdbDetails(string $kind, int $id): ?array
         $genres[] = ['id' => (int)$g['id'], 'name' => $gn];
     }
     $type = null;
+    $seasons = [];
     if ($kind === 'tv') {
         $t = trim((string)($j['type'] ?? ''));
         if ($t !== '') $type = $t;
+        foreach ($j['seasons'] ?? [] as $s) {
+            if (!is_array($s) || !isset($s['season_number'])) continue;
+            $sn = (int)$s['season_number'];
+            $sp = trim((string)($s['poster_path'] ?? ''));
+            $so = trim((string)($s['overview'] ?? ''));
+            $seasons[] = [
+                'season' => $sn,
+                'poster_path' => $sp !== '' ? $sp : null,
+                'overview' => $so !== '' ? $so : null,
+            ];
+        }
     }
     $vote = isset($j['vote_average']) && is_numeric($j['vote_average'])
         ? round((float)$j['vote_average'], 1) : null;
     if ($vote !== null && $vote <= 0) $vote = null;
     $poster = trim((string)($j['poster_path'] ?? ''));
+    $overview = trim((string)($j['overview'] ?? ''));
     return [
         'id' => $id,
         'name' => $name,
@@ -236,6 +249,8 @@ function mwTmdbDetails(string $kind, int $id): ?array
         'type' => $type,
         'vote_average' => $vote,
         'poster_path' => $poster !== '' ? $poster : null,
+        'overview' => $overview !== '' ? $overview : null,
+        'seasons' => $seasons,
     ];
 }
 
@@ -266,7 +281,31 @@ function mwTmdbUpsertGenres(\SQLite3 $db, array $genres): void
     }
 }
 
-/** @return array{name: string, vote_average: ?float}|null */
+/** @param list<array{season: int, poster_path: ?string, overview: ?string}> $seasons */
+function mwTmdbUpsertSeriesSeasons(\SQLite3 $db, int $seriesId, array $seasons): void
+{
+    if ($seasons === []) return;
+    $st = $db->prepare(
+        'INSERT INTO series_seasons (series_id, season, poster_path, overview) VALUES (?, ?, ?, ?)
+         ON CONFLICT(series_id, season) DO UPDATE SET
+           poster_path = excluded.poster_path,
+           overview = excluded.overview'
+    );
+    foreach ($seasons as $s) {
+        $sn = (int)($s['season'] ?? -1);
+        if ($sn < 0) continue;
+        $path = $s['poster_path'] ?? null;
+        $overview = $s['overview'] ?? null;
+        $st->reset();
+        $st->bindValue(1, $seriesId, SQLITE3_INTEGER);
+        $st->bindValue(2, $sn, SQLITE3_INTEGER);
+        $st->bindValue(3, $path, $path !== null ? SQLITE3_TEXT : SQLITE3_NULL);
+        $st->bindValue(4, $overview, $overview !== null ? SQLITE3_TEXT : SQLITE3_NULL);
+        $st->execute();
+    }
+}
+
+/** @return array{name: string, vote_average: ?float, still_path: ?string, overview: ?string}|null */
 function mwTmdbTvEpisode(int $tvId, int $season, int $episode): ?array
 {
     $j = mwTmdbGet("tv/$tvId/season/$season/episode/$episode");
@@ -276,7 +315,14 @@ function mwTmdbTvEpisode(int $tvId, int $season, int $episode): ?array
     $vote = isset($j['vote_average']) && is_numeric($j['vote_average'])
         ? round((float)$j['vote_average'], 1) : null;
     if ($vote !== null && $vote <= 0) $vote = null;
-    return ['name' => $name, 'vote_average' => $vote];
+    $still = trim((string)($j['still_path'] ?? ''));
+    $overview = trim((string)($j['overview'] ?? ''));
+    return [
+        'name' => $name,
+        'vote_average' => $vote,
+        'still_path' => $still !== '' ? $still : null,
+        'overview' => $overview !== '' ? $overview : null,
+    ];
 }
 
 function mwTmdbFormatShowTitle(string $name, ?int $year): string

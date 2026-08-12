@@ -206,6 +206,7 @@ $hasVideoGenreIds = false;
 $hasVideoVoteAverage = false;
 $hasVideoPosterPath = false;
 $hasVideoTmdbRefreshedAt = false;
+$hasVideoOverview = false;
 while ($col = $result->fetchArray(2)) {
     if (!empty($col) && isset($col[1])) {
         if ($col[1] === 'needs_fix') $hasNeedsFix = true;
@@ -220,6 +221,7 @@ while ($col = $result->fetchArray(2)) {
         if ($col[1] === 'vote_average') $hasVideoVoteAverage = true;
         if ($col[1] === 'poster_path') $hasVideoPosterPath = true;
         if ($col[1] === 'tmdb_refreshed_at') $hasVideoTmdbRefreshedAt = true;
+        if ($col[1] === 'overview') $hasVideoOverview = true;
     }
 }
 if (!$hasNeedsFix) $db->exec('ALTER TABLE videos ADD COLUMN needs_fix INTEGER DEFAULT 0;');
@@ -234,6 +236,7 @@ if (!$hasVideoGenreIds) $db->exec('ALTER TABLE videos ADD COLUMN genre_ids TEXT;
 if (!$hasVideoVoteAverage) $db->exec('ALTER TABLE videos ADD COLUMN vote_average REAL;');
 if (!$hasVideoPosterPath) $db->exec('ALTER TABLE videos ADD COLUMN poster_path TEXT;');
 if (!$hasVideoTmdbRefreshedAt) $db->exec('ALTER TABLE videos ADD COLUMN tmdb_refreshed_at TEXT;');
+if (!$hasVideoOverview) $db->exec('ALTER TABLE videos ADD COLUMN overview TEXT;');
 
 $hasSeriesTmdbId = false;
 $hasSeriesGenreIds = false;
@@ -241,6 +244,7 @@ $hasSeriesTmdbType = false;
 $hasSeriesVoteAverage = false;
 $hasSeriesPosterPath = false;
 $hasSeriesTmdbRefreshedAt = false;
+$hasSeriesOverview = false;
 $rsSer = $db->query('PRAGMA table_info(series);');
 while ($col = $rsSer->fetchArray(2)) {
     if (empty($col) || !isset($col[1])) continue;
@@ -250,6 +254,7 @@ while ($col = $rsSer->fetchArray(2)) {
     if ($col[1] === 'vote_average') $hasSeriesVoteAverage = true;
     if ($col[1] === 'poster_path') $hasSeriesPosterPath = true;
     if ($col[1] === 'tmdb_refreshed_at') $hasSeriesTmdbRefreshedAt = true;
+    if ($col[1] === 'overview') $hasSeriesOverview = true;
 }
 if (!$hasSeriesTmdbId) $db->exec('ALTER TABLE series ADD COLUMN tmdb_id INTEGER;');
 if (!$hasSeriesGenreIds) $db->exec('ALTER TABLE series ADD COLUMN genre_ids TEXT;');
@@ -257,6 +262,21 @@ if (!$hasSeriesTmdbType) $db->exec('ALTER TABLE series ADD COLUMN tmdb_type TEXT
 if (!$hasSeriesVoteAverage) $db->exec('ALTER TABLE series ADD COLUMN vote_average REAL;');
 if (!$hasSeriesPosterPath) $db->exec('ALTER TABLE series ADD COLUMN poster_path TEXT;');
 if (!$hasSeriesTmdbRefreshedAt) $db->exec('ALTER TABLE series ADD COLUMN tmdb_refreshed_at TEXT;');
+if (!$hasSeriesOverview) $db->exec('ALTER TABLE series ADD COLUMN overview TEXT;');
+
+$db->exec('CREATE TABLE IF NOT EXISTS series_seasons (
+    series_id INTEGER NOT NULL,
+    season INTEGER NOT NULL,
+    poster_path TEXT,
+    overview TEXT,
+    PRIMARY KEY (series_id, season)
+);');
+$hasSeasonOverview = false;
+$rsSeas = $db->query('PRAGMA table_info(series_seasons);');
+while ($col = $rsSeas->fetchArray(2)) {
+    if (!empty($col) && isset($col[1]) && $col[1] === 'overview') $hasSeasonOverview = true;
+}
+if (!$hasSeasonOverview) $db->exec('ALTER TABLE series_seasons ADD COLUMN overview TEXT;');
 
 if ($titlesBackfill) {
     $db->exec('BEGIN;');
@@ -516,7 +536,7 @@ function adoptMovedVideo(\SQLite3 $db, string $filepath, array &$knownFiles): ?s
     if ($row === null) return null;
 
     $clear = ($row['filename'] !== $name)
-        ? ', name = NULL, tmdb_id = NULL, genre_ids = NULL, vote_average = NULL, poster_path = NULL, tmdb_refreshed_at = NULL'
+        ? ', name = NULL, tmdb_id = NULL, genre_ids = NULL, vote_average = NULL, poster_path = NULL, tmdb_refreshed_at = NULL, overview = NULL'
         : '';
     $up = $db->prepare(
         "UPDATE videos SET filepath = ?, filename = ?, directory = ?, is_deleted = 0,

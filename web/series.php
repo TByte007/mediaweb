@@ -25,6 +25,8 @@ $db = new SQLite3(MW_DB);
 $db->busyTimeout(5000);
 
 $seriesRow = null;
+$seriesOverview = '';
+$seasonOverview = '';
 $seasons = [];
 $shows = [];
 $videos = [];
@@ -34,7 +36,7 @@ $pages = 1;
 $seriesLevel = 'shows';
 
 if ($sid > 0) {
-    $seriesRow = $db->querySingle('SELECT id, title FROM series WHERE id = ' . $sid, true);
+    $seriesRow = $db->querySingle('SELECT id, title, overview FROM series WHERE id = ' . $sid, true);
     if (!$seriesRow) {
         $db->close();
         http_response_code(404);
@@ -42,6 +44,10 @@ if ($sid > 0) {
     }
     if ($season !== null) {
         $seriesLevel = 'episodes';
+        $seasonOverview = trim((string)($db->querySingle(
+            'SELECT overview FROM series_seasons WHERE series_id = ' . $sid
+            . ' AND season = ' . $season
+        ) ?? ''));
         $limit = 40;
         $where = 'is_deleted = 0 AND series_id = :sid AND season = :season';
         $params = ['sid' => $sid, 'season' => $season];
@@ -93,8 +99,9 @@ if ($sid > 0) {
         $result->finalize();
     } else {
         $seriesLevel = 'seasons';
+        $seriesOverview = trim((string)($seriesRow['overview'] ?? ''));
         $stmt = $db->prepare(
-            'SELECT season, COUNT(*) AS eps, MIN(id) AS cover_id, SUM(playback_count) AS plays
+            'SELECT season, COUNT(*) AS eps, SUM(playback_count) AS plays
              FROM videos
              WHERE is_deleted = 0 AND series_id = :sid AND season IS NOT NULL
              GROUP BY season ORDER BY season ASC'
@@ -105,7 +112,6 @@ if ($sid > 0) {
             $seasons[] = [
                 'season' => (int)$row['season'],
                 'eps' => (int)$row['eps'],
-                'cover_id' => (int)$row['cover_id'],
                 'plays' => (int)$row['plays'],
             ];
         }
@@ -127,7 +133,7 @@ if ($sid > 0) {
         $params['genre_like'] = '%,'.$genre.',%';
     }
     $stmt = $db->prepare(
-        "SELECT s.id, s.title, s.cover_video_id, s.tmdb_type,
+        "SELECT s.id, s.title, s.tmdb_type,
                 COUNT(v.id) AS eps, COUNT(DISTINCT v.season) AS seasons
          FROM series s
          JOIN videos v ON v.series_id = s.id AND v.is_deleted = 0
@@ -141,7 +147,6 @@ if ($sid > 0) {
         $shows[] = [
             'id' => (int)$row['id'],
             'title' => (string)$row['title'],
-            'cover_video_id' => $row['cover_video_id'] !== null ? (int)$row['cover_video_id'] : null,
             'eps' => (int)$row['eps'],
             'seasons' => (int)$row['seasons'],
             'tmdb_type' => trim((string)($row['tmdb_type'] ?? '')) ?: null,
@@ -172,9 +177,7 @@ require __DIR__ . '/layout/header.php';
     <?php foreach ($shows as $s): ?>
         <div class="card" data-href="<?= htmlspecialchars($basePath . '?mode=series&sid=' . $s['id']) ?>">
             <div class="thumb">
-                <?php if ($s['cover_video_id']): ?>
-                <img loading="lazy" src="<?= $basePath ?>getcover.php?id=<?= $s['cover_video_id'] ?>" alt="">
-                <?php endif; ?>
+                <img loading="lazy" src="<?= $basePath ?>getcover.php?sid=<?= (int)$s['id'] ?>" alt="">
                 <div class="tags">
                     <span class="tag time"><?= $s['seasons'] ?> season<?= $s['seasons'] != 1 ? 's' : '' ?></span>
                     <?php if (!empty($s['tmdb_type'])): ?>
@@ -196,6 +199,9 @@ require __DIR__ . '/layout/header.php';
         <a class="back-link" href="<?= htmlspecialchars($basePath . '?mode=series') ?>">&#8592; Series</a>
         <strong style="margin-left:12px"><?= htmlspecialchars((string)$seriesRow['title']) ?></strong>
     </div>
+    <?php if ($seriesOverview !== ''): ?>
+    <p class="tmdb-overview" style="margin-bottom:12px"><?= htmlspecialchars($seriesOverview) ?></p>
+    <?php endif; ?>
     <?php if (!$seasons): ?>
     <div class="empty">No seasons.</div>
     <?php else: ?>
@@ -203,7 +209,7 @@ require __DIR__ . '/layout/header.php';
     <?php foreach ($seasons as $sz): ?>
         <div class="card" data-href="<?= htmlspecialchars($basePath . '?mode=series&sid=' . $sid . '&season=' . $sz['season']) ?>">
             <div class="thumb">
-                <img loading="lazy" src="<?= $basePath ?>getcover.php?id=<?= $sz['cover_id'] ?>" alt="">
+                <img loading="lazy" src="<?= $basePath ?>getcover.php?sid=<?= (int)$sid ?>&season=<?= (int)$sz['season'] ?>" alt="">
                 <div class="tags">
                     <span class="tag time"><?= $sz['eps'] ?> ep<?= $sz['eps'] != 1 ? 's' : '' ?></span>
                 </div>
@@ -231,6 +237,9 @@ require __DIR__ . '/layout/header.php';
         — <?= number_format($total) ?> match<?= $total != 1 ? 'es' : '' ?>
         <?php endif; ?>
     </div>
+    <?php if ($seasonOverview !== ''): ?>
+    <p class="tmdb-overview" style="margin-bottom:12px"><?= htmlspecialchars($seasonOverview) ?></p>
+    <?php endif; ?>
     <?php if (!$videos): ?>
     <div class="empty">No episodes.</div>
     <?php else: ?>

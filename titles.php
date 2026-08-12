@@ -175,7 +175,7 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
 
     $stmtSer = $db->prepare(
         'UPDATE series SET tmdb_id = ?, title = ?, genre_ids = ?, tmdb_type = ?,
-         vote_average = ?, poster_path = ?, tmdb_refreshed_at = datetime(\'now\'),
+         vote_average = ?, poster_path = ?, overview = ?, tmdb_refreshed_at = datetime(\'now\'),
          updated_at = datetime(\'now\') WHERE id = ?'
     );
     $stmtSerIdOnly = $db->prepare(
@@ -183,7 +183,7 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
     );
     $seriesRows = [];
     $rs = $db->query(
-        'SELECT id, root_key, title, tmdb_id, tmdb_refreshed_at FROM series ORDER BY id'
+        'SELECT id, root_key, title, tmdb_id, tmdb_refreshed_at, overview FROM series ORDER BY id'
     );
     while ($row = $rs->fetchArray(SQLITE3_ASSOC)) $seriesRows[] = $row;
     $rs->finalize();
@@ -198,7 +198,17 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             continue;
         }
         if ($cachedId > 0) {
-            if (!$force && !mwTmdbMetaDue($row, $id)) {
+            $seas = $db->querySingle(
+                'SELECT COUNT(*) AS n,
+                        SUM(CASE WHEN overview IS NOT NULL AND overview != \'\' THEN 1 ELSE 0 END) AS ov
+                 FROM series_seasons WHERE series_id = ' . $id,
+                true
+            );
+            $seasonCount = (int)($seas['n'] ?? 0);
+            $needGap = $seasonCount === 0
+                || ($seasonCount > 0 && (int)($seas['ov'] ?? 0) === 0)
+                || $row['overview'] === null || $row['overview'] === '';
+            if (!$force && !mwTmdbMetaDue($row, $id) && !$needGap) {
                 if ($verbose) echo "tmdb series #$id | {$row['title']}  →  cached\n";
                 continue;
             }
@@ -208,6 +218,7 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
                 continue;
             }
             mwTmdbUpsertGenres($db, $hit['genres']);
+            mwTmdbUpsertSeriesSeasons($db, $id, $hit['seasons']);
             $csv = mwTmdbGenreIdsCsv($hit['genres']);
             $newTitle = $force
                 ? mwTmdbFormatShowTitle($hit['name'], $hit['year'])
@@ -219,7 +230,8 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             $stmtSer->bindValue(4, $hit['type'], $hit['type'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
             $stmtSer->bindValue(5, $hit['vote_average'], $hit['vote_average'] !== null ? SQLITE3_FLOAT : SQLITE3_NULL);
             $stmtSer->bindValue(6, $hit['poster_path'], $hit['poster_path'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
-            $stmtSer->bindValue(7, $id, SQLITE3_INTEGER);
+            $stmtSer->bindValue(7, $hit['overview'], $hit['overview'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
+            $stmtSer->bindValue(8, $id, SQLITE3_INTEGER);
             if (!$dbExec($stmtSer)) {
                 echo "tmdb series #$id  →  (db locked)\n";
                 continue;
@@ -266,6 +278,7 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             continue;
         }
         mwTmdbUpsertGenres($db, $detail['genres']);
+        mwTmdbUpsertSeriesSeasons($db, $id, $detail['seasons']);
         $csv = mwTmdbGenreIdsCsv($detail['genres']);
         $newTitle = mwTmdbFormatShowTitle($detail['name'], $detail['year']);
         $stmtSer->reset();
@@ -275,7 +288,8 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $stmtSer->bindValue(4, $detail['type'], $detail['type'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
         $stmtSer->bindValue(5, $detail['vote_average'], $detail['vote_average'] !== null ? SQLITE3_FLOAT : SQLITE3_NULL);
         $stmtSer->bindValue(6, $detail['poster_path'], $detail['poster_path'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
-        $stmtSer->bindValue(7, $id, SQLITE3_INTEGER);
+        $stmtSer->bindValue(7, $detail['overview'], $detail['overview'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
+        $stmtSer->bindValue(8, $id, SQLITE3_INTEGER);
         if (!$dbExec($stmtSer)) {
             echo "tmdb series #$id  →  (db locked)\n";
             continue;
@@ -285,17 +299,21 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
     }
 
     $stmtEp = $db->prepare(
-        'UPDATE videos SET name = ?, vote_average = ?, updated_at = datetime(\'now\') WHERE id = ?'
+        'UPDATE videos SET name = ?, vote_average = ?, poster_path = ?, overview = ?,
+         updated_at = datetime(\'now\') WHERE id = ?'
     );
     $sqlEp = 'SELECT v.id, v.filepath, v.duration_secs, v.season, v.episode,
-                     v.episode_title, v.name, v.vote_average, s.title AS series_title, s.tmdb_id
+                     v.episode_title, v.name, v.vote_average, v.poster_path, v.overview,
+                     s.title AS series_title, s.tmdb_id
               FROM videos v
               JOIN series s ON s.id = v.series_id
               WHERE v.is_deleted = 0
                 AND v.season IS NOT NULL AND v.episode IS NOT NULL
                 AND s.tmdb_id IS NOT NULL';
     if (!$force)
-        $sqlEp .= ' AND ((v.name IS NULL OR v.name = \'\') OR v.vote_average IS NULL OR v.vote_average <= 0)';
+        $sqlEp .= ' AND ((v.name IS NULL OR v.name = \'\') OR v.vote_average IS NULL OR v.vote_average <= 0'
+            . ' OR v.poster_path IS NULL OR v.poster_path = \'\''
+            . ' OR v.overview IS NULL OR v.overview = \'\')';
     $sqlEp .= ' ORDER BY v.id';
     $epRows = [];
     $rv = $db->query($sqlEp);
@@ -339,28 +357,34 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $code = sprintf('S%02dE%02d', $season, $episode);
         $out = (!$force && $hasName) ? (string)$row['name'] : "$show: $epName $code";
         $vote = ($ep !== null) ? ($ep['vote_average'] ?? null) : null;
+        $still = ($ep !== null) ? ($ep['still_path'] ?? null) : null;
+        $overview = ($ep !== null) ? ($ep['overview'] ?? null) : null;
         $stmtEp->reset();
         $stmtEp->bindValue(1, $out);
         $stmtEp->bindValue(2, $vote, $vote !== null ? SQLITE3_FLOAT : SQLITE3_NULL);
-        $stmtEp->bindValue(3, $id, SQLITE3_INTEGER);
+        $stmtEp->bindValue(3, $still, $still !== null ? SQLITE3_TEXT : SQLITE3_NULL);
+        $stmtEp->bindValue(4, $overview, $overview !== null ? SQLITE3_TEXT : SQLITE3_NULL);
+        $stmtEp->bindValue(5, $id, SQLITE3_INTEGER);
         if (!$dbExec($stmtEp)) {
             echo "tmdb video #$id  →  (db locked)\n";
             continue;
         }
         $score = $vote !== null ? " score=$vote" : '';
-        echo "tmdb video #$id | $show | $code  →  $out ($via)$score\n";
+        $stillNote = $still !== null ? ' still' : '';
+        echo "tmdb video #$id | $show | $code  →  $out ($via)$score$stillNote\n";
         $epNamed++;
     }
 
     $stmtMov = $db->prepare(
         'UPDATE videos SET name = ?, tmdb_id = ?, genre_ids = ?,
-         vote_average = ?, poster_path = ?, tmdb_refreshed_at = datetime(\'now\'),
+         vote_average = ?, poster_path = ?, overview = ?, tmdb_refreshed_at = datetime(\'now\'),
          updated_at = datetime(\'now\') WHERE id = ?'
     );
     $stmtMovIdOnly = $db->prepare(
         'UPDATE videos SET name = ?, tmdb_id = ?, updated_at = datetime(\'now\') WHERE id = ?'
     );
-    $sqlMov = 'SELECT id, filepath, filename, title, duration_secs, tmdb_id, name, tmdb_refreshed_at
+    $sqlMov = 'SELECT id, filepath, filename, title, duration_secs, tmdb_id, name,
+                      tmdb_refreshed_at, overview
                FROM videos WHERE is_deleted = 0 AND series_id IS NULL ORDER BY id';
     $movRows = [];
     $rm = $db->query($sqlMov);
@@ -383,7 +407,8 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             continue;
         }
         if ($cachedId > 0) {
-            if (!$force && !mwTmdbMetaDue($row, $id)) {
+            $needOverview = $row['overview'] === null || $row['overview'] === '';
+            if (!$force && !mwTmdbMetaDue($row, $id) && !$needOverview) {
                 if ($verbose) echo "tmdb movie #$id  →  cached\n";
                 continue;
             }
@@ -403,7 +428,8 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             $stmtMov->bindValue(3, $csv !== '' ? $csv : null, $csv !== '' ? SQLITE3_TEXT : SQLITE3_NULL);
             $stmtMov->bindValue(4, $hit['vote_average'], $hit['vote_average'] !== null ? SQLITE3_FLOAT : SQLITE3_NULL);
             $stmtMov->bindValue(5, $hit['poster_path'], $hit['poster_path'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
-            $stmtMov->bindValue(6, $id, SQLITE3_INTEGER);
+            $stmtMov->bindValue(6, $hit['overview'], $hit['overview'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
+            $stmtMov->bindValue(7, $id, SQLITE3_INTEGER);
             if (!$dbExec($stmtMov)) {
                 echo "tmdb movie #$id  →  (db locked)\n";
                 continue;
@@ -462,7 +488,8 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $stmtMov->bindValue(3, $csv !== '' ? $csv : null, $csv !== '' ? SQLITE3_TEXT : SQLITE3_NULL);
         $stmtMov->bindValue(4, $detail['vote_average'], $detail['vote_average'] !== null ? SQLITE3_FLOAT : SQLITE3_NULL);
         $stmtMov->bindValue(5, $detail['poster_path'], $detail['poster_path'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
-        $stmtMov->bindValue(6, $id, SQLITE3_INTEGER);
+        $stmtMov->bindValue(6, $detail['overview'], $detail['overview'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
+        $stmtMov->bindValue(7, $id, SQLITE3_INTEGER);
         if (!$dbExec($stmtMov)) {
             echo "tmdb movie #$id  →  (db locked)\n";
             continue;

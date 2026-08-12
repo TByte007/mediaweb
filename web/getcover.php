@@ -1,7 +1,10 @@
 <?php
 
 /**
- * Cover image: TMDB poster (cached) → folder sidecar → ffmpeg frame.
+ * Cover image:
+ *   ?id=         videos.poster_path → folder sidecar → ffmpeg
+ *   ?sid=        series.poster_path → cover_video_id (ffmpeg/still)
+ *   ?sid=&season= series_seasons.poster_path → series.poster_path
  */
 
 declare(strict_types=1);
@@ -11,8 +14,11 @@ require_once __DIR__ . '/../config.php';
 header('Content-Type: image/jpeg');
 header('Cache-Control: public, max-age=604800');
 
-$id = (int)($_GET['id'] ?? 0);
-if ($id <= 0) {
+$id = isset($_GET['id']) && ctype_digit((string)$_GET['id']) ? (int)$_GET['id'] : 0;
+$sid = isset($_GET['sid']) && ctype_digit((string)$_GET['sid']) ? (int)$_GET['sid'] : 0;
+$season = isset($_GET['season']) && ctype_digit((string)$_GET['season']) ? (int)$_GET['season'] : null;
+
+if ($id <= 0 && $sid <= 0) {
     http_response_code(400);
     exit;
 }
@@ -23,35 +29,17 @@ if (!file_exists($dbFile)) {
     exit;
 }
 
-$db = new SQLite3($dbFile);
-$db->busyTimeout(5000);
-$row = $db->querySingle(
-    "SELECT v.filepath, v.duration_secs,
-            CASE WHEN v.series_id IS NOT NULL THEN s.poster_path ELSE v.poster_path END AS poster_path
-     FROM videos v
-     LEFT JOIN series s ON s.id = v.series_id
-     WHERE v.id = $id",
-    true
-);
-$db->close();
-
-if (!$row || empty($row['filepath']) || !file_exists($row['filepath'])) {
-    http_response_code(404);
-    exit;
-}
-
-$filepath = $row['filepath'];
 $coverDir = __DIR__ . '/covers';
-$cacheKey = hash('xxh64', $filepath);
-$cachePath = $coverDir . '/' . $cacheKey . '.jpg';
-$dir = dirname($filepath);
 
-$posterPath = trim((string)($row['poster_path'] ?? ''));
-if ($posterPath !== '') {
+function mwServeTmdbPoster(string $coverDir, string $posterPath): bool
+{
+    $posterPath = trim($posterPath);
+    if ($posterPath === '') return false;
+    if ($posterPath[0] !== '/') $posterPath = '/' . $posterPath;
     $tmdbCache = $coverDir . '/tmdb_' . hash('xxh64', $posterPath) . '.jpg';
     if (file_exists($tmdbCache) && filesize($tmdbCache) >= 1024) {
         readfile($tmdbCache);
-        exit;
+        return true;
     }
     $ch = curl_init('https://image.tmdb.org/t/p/w342' . $posterPath);
     $opts = [
@@ -66,22 +54,71 @@ if ($posterPath !== '') {
     $body = curl_exec($ch);
     $http = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    if (is_string($body) && $http === 200 && strlen($body) >= 1024) {
-        $tmpPoster = $tmdbCache . '.tmp';
-        if (@file_put_contents($tmpPoster, $body) !== false) {
-            @unlink($tmdbCache);
-            if (!@rename($tmpPoster, $tmdbCache)) {
-                @copy($tmpPoster, $tmdbCache);
-                @unlink($tmpPoster);
-            }
-            if (file_exists($tmdbCache)) {
-                readfile($tmdbCache);
-                exit;
-            }
-        }
+    if (!is_string($body) || $http !== 200 || strlen($body) < 1024) return false;
+    $tmpPoster = $tmdbCache . '.tmp';
+    if (@file_put_contents($tmpPoster, $body) === false) return false;
+    @unlink($tmdbCache);
+    if (!@rename($tmpPoster, $tmdbCache)) {
+        @copy($tmpPoster, $tmdbCache);
         @unlink($tmpPoster);
     }
+    if (!file_exists($tmdbCache)) return false;
+    readfile($tmdbCache);
+    return true;
 }
+
+$db = new SQLite3($dbFile);
+$db->busyTimeout(5000);
+
+// Show or season poster (no video file / ffmpeg). Season → show poster; show → cover_video_id.
+if ($sid > 0 && $id <= 0) {
+    $posterPath = '';
+    if ($season !== null) {
+        $posterPath = trim((string)($db->querySingle(
+            'SELECT poster_path FROM series_seasons WHERE series_id = ' . $sid
+            . ' AND season = ' . $season
+        ) ?? ''));
+    }
+    if ($posterPath === '') {
+        $posterPath = trim((string)($db->querySingle(
+            'SELECT poster_path FROM series WHERE id = ' . $sid
+        ) ?? ''));
+    }
+    if ($posterPath !== '' && mwServeTmdbPoster($coverDir, $posterPath)) {
+        $db->close();
+        exit;
+    }
+    if ($season !== null) {
+        $db->close();
+        http_response_code(404);
+        exit;
+    }
+    $id = (int)($db->querySingle('SELECT cover_video_id FROM series WHERE id = ' . $sid) ?? 0);
+    if ($id <= 0) {
+        $db->close();
+        http_response_code(404);
+        exit;
+    }
+}
+
+$row = $db->querySingle(
+    "SELECT filepath, duration_secs, poster_path FROM videos WHERE id = $id",
+    true
+);
+$db->close();
+
+if (!$row || empty($row['filepath']) || !file_exists($row['filepath'])) {
+    http_response_code(404);
+    exit;
+}
+
+$filepath = $row['filepath'];
+$cacheKey = hash('xxh64', $filepath);
+$cachePath = $coverDir . '/' . $cacheKey . '.jpg';
+$dir = dirname($filepath);
+
+$posterPath = trim((string)($row['poster_path'] ?? ''));
+if ($posterPath !== '' && mwServeTmdbPoster($coverDir, $posterPath)) exit;
 
 if (file_exists($cachePath) && filemtime($cachePath) >= filemtime($filepath)) {
     readfile($cachePath);

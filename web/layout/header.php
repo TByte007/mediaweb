@@ -176,6 +176,10 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
     color: #7dd3fc;
 }
 .info-chip-tmdb:hover { background: #01b4e4; border-color: #01b4e4; color: #031d29; }
+.tmdb-overview {
+    margin: 0; max-width: 52rem; color: var(--muted);
+    font-size: 14px; line-height: 1.45; white-space: pre-wrap;
+}
 .meta-grid {
     display: grid; grid-template-columns: repeat(12, 1fr); gap: 6px;
 }
