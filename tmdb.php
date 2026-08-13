@@ -88,22 +88,9 @@ function mwTmdbNorm(string $s): string
     return trim(preg_replace('/\s+/', ' ', $s) ?? '');
 }
 
-/** True when local parse and TMDB episode name are the same title (allow TMDB spelling). */
-function mwTmdbTitlesAgree(string $a, string $b): bool
+function mwTmdbCompact(string $normed): string
 {
-    $na = mwTmdbNorm($a);
-    $nb = mwTmdbNorm($b);
-    if ($na === '' || $nb === '') return false;
-    if ($na === $nb) return true;
-    if (str_contains($na, $nb) || str_contains($nb, $na)) return true;
-    $ta = array_flip(preg_split('/\s+/', $na, -1, PREG_SPLIT_NO_EMPTY) ?: []);
-    $tb = preg_split('/\s+/', $nb, -1, PREG_SPLIT_NO_EMPTY) ?: [];
-    if ($tb === []) return false;
-    $hit = 0;
-    foreach ($tb as $t) {
-        if (isset($ta[$t])) $hit++;
-    }
-    return ($hit / count($tb)) >= 0.6 && ($hit / max(1, count($ta))) >= 0.6;
+    return str_replace(' ', '', (string)preg_replace('/\band\b/', '', $normed));
 }
 
 /** @return array{0: string, 1: ?int} */
@@ -130,6 +117,7 @@ function mwTmdbPickResult(array $results, string $query, ?int $yearHint, string 
     if ($results === []) return null;
     $q = mwTmdbNorm($query);
     if ($q === '') return null;
+    $qc = mwTmdbCompact($q);
 
     $best = null;
     $bestScore = -1;
@@ -139,6 +127,7 @@ function mwTmdbPickResult(array $results, string $query, ?int $yearHint, string 
         if ($n === '') continue;
         $score = 0;
         if ($n === $q) $score += 100;
+        elseif (mwTmdbCompact($n) === $qc) $score += 90;
         elseif (str_starts_with($n, $q) || str_starts_with($q, $n)) $score += 60;
         elseif (str_contains($n, $q) || str_contains($q, $n)) $score += 30;
         else continue;
@@ -162,7 +151,19 @@ function mwTmdbPickResult(array $results, string $query, ?int $yearHint, string 
  */
 function mwTmdbSearch(string $kind, string $query, ?int $year = null): ?array
 {
+    $query = trim((string)preg_replace('/\b(?:dd[p]?|aac|ac3|dts|eac3)[\s._-]*\d(?:[\s._-]*\d)?\b/i', ' ', $query));
     [$q, $yFromQ] = mwTmdbSplitYear($query);
+    if (preg_match('/^(.*?)\s+((?:19|20)\d{2})\s*$/', $q, $m)) {
+        $q = trim($m[1]);
+        $yFromQ = $yFromQ ?? (int)$m[2];
+    }
+    $kept = [];
+    foreach (preg_split('/\s+/', $q) ?: [] as $p) {
+        if ($p === '' || mwIsStripNoise($p) || preg_match('/^\d{3,4}p$/i', $p)) continue;
+        $kept[] = $p;
+    }
+    $q = implode(' ', $kept);
+    if ($q === '') return null;
     $yearHint = $year ?? $yFromQ;
     $titleKey = $kind === 'movie' ? 'title' : 'name';
     $dateKey = $kind === 'movie' ? 'release_date' : 'first_air_date';

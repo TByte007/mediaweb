@@ -20,16 +20,18 @@ function mwStripLists(): array
             'korsub', 'hdrip', 'bluray', 'blu-ray', 'webrip', 'webdl', 'web-dl',
             'hdtv', 'pdtv', 'dvdrip', 'bdrip', 'brrip', 'dsrip', 'dvdscr', 'remux',
             'xvid', 'divx', 'x264', 'x265', 'h264', 'h265', 'hevc', 'avc',
-            'aac', 'ac3', 'dts', 'mp3',
+            'aac', 'ac3', 'dts', 'mp3', 'eac3', 'truehd', 'atmos', 'dd5', 'ddp',
             'ntsc', 'pal', 'sdc', 'web',
         ],
         'edition' => [
             'unrated', 'internal', 'proper', 'repack', 'limited', 'extended',
             'retail', 'complete', 'dual', 'multi', 'subbed', 'dubbed',
             'readnfo', 'nfo', 'scene',
+            'netflix', 'amazon', 'amzn', 'hulu',
         ],
         'group' => [
             '2hd', 'evo', 'vain', 'rarbg', 'yify', 'threesixtyp', 'killers',
+            'lol', 'afg', 'fov', 'sva',
         ],
     ];
 

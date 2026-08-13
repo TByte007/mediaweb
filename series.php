@@ -58,6 +58,46 @@ function stripDoubleEpisodeTail(string $rest): string
     return (string)preg_replace('/^[&._\s-]*e\d{1,2}\b/i', '', $rest);
 }
 
+/**
+ * Scene SEE / SSEE after a rip tag: bones.924.hdtv-lol → 9,24; ncis.1306.hdtv → 13,6.
+ * 19xx/20xx stays a year (not S19/S20).
+ * @return array{season: int, episode: int}|null
+ */
+function parseSceneEpisode(string $code, string $rest): ?array
+{
+    if (preg_match('/^(?:19|20)\d{2}$/', $code)) return null;
+    if (!preg_match('/\b(hdtv|pdtv|webrip|web-?dl|web|proper|repack|internal)\b/i', $rest))
+        return null;
+    $n = strlen($code);
+    $season = $n === 3 ? (int)$code[0] : (int)substr($code, 0, 2);
+    $episode = $n === 3 ? (int)substr($code, 1) : (int)substr($code, 2);
+    if ($season < 1 || $episode < 1) return null;
+    return ['season' => $season, 'episode' => $episode];
+}
+
+/** Show name from an episode filename (SxxExx or scene code). */
+function parseShowNameFromFilename(string $filename): ?string
+{
+    $base = pathinfo($filename, PATHINFO_FILENAME);
+    if (preg_match('/^(.+?)[.\-_ ]s\d{1,2}e\d{1,2}\b/i', $base, $m)) {
+        $s = prettifyFilename($m[1]);
+        return $s !== '' ? $s : null;
+    }
+    if (preg_match('/^(.+?)[.\-_ ](\d{3,4})[.\-_ ](.+)$/i', $base, $m)
+        && parseSceneEpisode($m[2], $m[3]) !== null) {
+        $s = prettifyFilename($m[1]);
+        return $s !== '' ? $s : null;
+    }
+    return null;
+}
+
+function mwLooseShowKey(string $title): string
+{
+    $s = strtolower(preg_replace('/[^a-z0-9]+/i', ' ', $title) ?? '');
+    $s = trim(preg_replace('/\s+/', ' ', $s) ?? '');
+    return (string)preg_replace('/\s+(?:19|20)\d{2}$/', '', $s);
+}
+
 /** @return array{season: ?int, episode: ?int, episode_title: ?string} */
 function parseEpisodeFields(string $filepath): array
 {
@@ -104,6 +144,15 @@ function parseEpisodeFields(string $filepath): array
         $rest = cleanEpisodeTitle((string)$m[2]);
         if ($rest !== '') $out['episode_title'] = $rest;
         return $out;
+    }
+
+    if (preg_match('/^(.+?)[.\s_-](\d{3,4})[.\s_-](.+)$/i', $stem, $m)) {
+        $scene = parseSceneEpisode($m[2], $m[3]);
+        if ($scene !== null) {
+            $out['season'] = $scene['season'];
+            $out['episode'] = $scene['episode'];
+            return $out;
+        }
     }
 
     if ($seasonFromPath !== null) $out['season'] = $seasonFromPath;
@@ -233,7 +282,8 @@ function linkSeries(\SQLite3 $db): array
     );
 
     $stmtFields = $db->prepare(
-        'UPDATE videos SET season = ?, episode = ?, episode_title = ?, series_id = ? WHERE id = ?'
+        'UPDATE videos SET season = ?, episode = ?, episode_title = ?, series_id = ?,
+         tmdb_id = CASE WHEN ? IS NOT NULL THEN NULL ELSE tmdb_id END WHERE id = ?'
     );
     $stmtSeries = $db->prepare(
         'INSERT INTO series (root_key, title, cover_video_id, updated_at)
@@ -287,8 +337,60 @@ function linkSeries(\SQLite3 $db): array
             $stmtFields->bindValue(2, $v['episode'], $v['episode'] === null ? SQLITE3_NULL : SQLITE3_INTEGER);
             $stmtFields->bindValue(3, $v['episode_title'], $v['episode_title'] === null ? SQLITE3_NULL : SQLITE3_TEXT);
             $stmtFields->bindValue(4, $sid, $sid === null ? SQLITE3_NULL : SQLITE3_INTEGER);
-            $stmtFields->bindValue(5, $v['id'], SQLITE3_INTEGER);
+            $stmtFields->bindValue(5, $sid, $sid === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+            $stmtFields->bindValue(6, $v['id'], SQLITE3_INTEGER);
             $stmtFields->execute();
+        }
+    }
+
+    // One-off episode torrents (not a pack folder): group by show name.
+    $byShow = [];
+    $rsFn = $db->query(
+        'SELECT id, filename FROM videos
+         WHERE is_deleted = 0 AND series_id IS NULL AND season IS NOT NULL AND episode IS NOT NULL'
+    );
+    while ($row = $rsFn->fetchArray(SQLITE3_ASSOC)) {
+        $show = parseShowNameFromFilename((string)$row['filename']);
+        if ($show === null) continue;
+        $key = mwLooseShowKey($show);
+        if ($key === '') continue;
+        if (!isset($byShow[$key])) $byShow[$key] = ['title' => $show, 'ids' => []];
+        $byShow[$key]['ids'][] = (int)$row['id'];
+    }
+    $rsFn->finalize();
+
+    $titleToId = [];
+    if ($keepIds !== []) {
+        $in = implode(',', array_map('intval', $keepIds));
+        $rsT = $db->query("SELECT id, title FROM series WHERE id IN ($in)");
+        while ($row = $rsT->fetchArray(SQLITE3_ASSOC)) {
+            $k = mwLooseShowKey((string)$row['title']);
+            if ($k !== '') $titleToId[$k] = (int)$row['id'];
+        }
+        $rsT->finalize();
+    }
+
+    $stmtLink = $db->prepare('UPDATE videos SET series_id = ?, tmdb_id = NULL WHERE id = ?');
+    foreach ($byShow as $key => $grp) {
+        $seriesId = $titleToId[$key] ?? null;
+        if ($seriesId === null) {
+            $stmtSeries->reset();
+            $stmtSeries->bindValue(1, 'loose:' . $key);
+            $stmtSeries->bindValue(2, $grp['title']);
+            $stmtSeries->bindValue(3, $grp['ids'][0], SQLITE3_INTEGER);
+            $stmtSeries->execute();
+            $stmtGetId->reset();
+            $stmtGetId->bindValue(1, 'loose:' . $key);
+            $seriesId = (int)$stmtGetId->execute()->fetchArray(2)[0];
+            $keepIds[] = $seriesId;
+            $seriesCount++;
+        }
+        foreach ($grp['ids'] as $vid) {
+            $stmtLink->reset();
+            $stmtLink->bindValue(1, $seriesId, SQLITE3_INTEGER);
+            $stmtLink->bindValue(2, $vid, SQLITE3_INTEGER);
+            $stmtLink->execute();
+            $linked++;
         }
     }
 

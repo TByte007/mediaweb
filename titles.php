@@ -71,12 +71,12 @@ function mwTitleIsReleaseToken(string $t): bool
     return mwIsStripNoise($t) || (bool)preg_match('/^\d{3,4}p$/i', $t);
 }
 
-function mwTitleShowFromFilename(string $fn): ?string
+function mwTitleLooksDirty(string $name): bool
 {
-    $base = pathinfo($fn, PATHINFO_FILENAME);
-    if (!preg_match('/^(.+?)[.\-_ ]s\d{1,2}e\d{1,2}\b/i', $base, $m)) return null;
-    $s = prettifyFilename($m[1]);
-    return $s !== '' ? $s : null;
+    foreach (preg_split('/\s+/', $name) ?: [] as $p) {
+        if ($p !== '' && mwTitleIsReleaseToken($p)) return true;
+    }
+    return false;
 }
 
 /** Named / code-only episode display; null if not applicable. */
@@ -87,7 +87,7 @@ function mwTitleEpisodePhp(string $show, ?string $code, string $epTitle, string 
     $namedEp = $epTitle !== '' && !$releaseOnly;
     $codeOnly = $epTitle === '' || $releaseOnly;
     if ($show === '-') {
-        $guess = mwTitleShowFromFilename($fn);
+        $guess = parseShowNameFromFilename($fn);
         if ($guess !== null) $show = $guess;
     }
     if ($show === '-') return null;
@@ -148,7 +148,7 @@ function mwTitleTmdbSearchFromLlm(string $user, string $expectKind): ?array
     $parsed = mwTitleParseLlmSearch($raw);
     if ($parsed === null) return null;
     $kind = $parsed['kind'];
-    if ($expectKind === 'movie' && $kind !== 'movie') return null;
+    if ($kind !== $expectKind) return null;
     echo "  llm search: kind=$kind query=\"{$parsed['query']}\" year="
         . ($parsed['year'] ?? 'none')
         . ($parsed['why'] ? " why={$parsed['why']}" : '') . "\n";
@@ -303,7 +303,8 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
                 AND v.season IS NOT NULL AND v.episode IS NOT NULL
                 AND s.tmdb_id IS NOT NULL';
     if (!$force)
-        $sqlEp .= ' AND ((v.name IS NULL OR v.name = \'\') OR v.vote_average IS NULL OR v.vote_average <= 0'
+        $sqlEp .= ' AND ((v.name IS NULL OR v.name = \'\') OR v.name NOT LIKE \'%: %\''
+            . ' OR v.vote_average IS NULL OR v.vote_average <= 0'
             . ' OR v.poster_path IS NULL OR v.poster_path = \'\''
             . ' OR v.overview IS NULL OR v.overview = \'\')';
     $sqlEp .= ' ORDER BY v.id';
@@ -328,26 +329,21 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $episode = (int)$row['episode'];
         $show = (string)$row['series_title'];
         $localEp = trim((string)($row['episode_title'] ?? ''));
-        $hasName = $row['name'] !== null && $row['name'] !== '';
+        if ($localEp !== '' && mwTitleIsReleaseToken($localEp)) $localEp = '';
         $ep = mwTmdbTvEpisode((int)$row['tmdb_id'], $season, $episode);
-        if ($localEp !== '') {
-            if ($ep !== null && mwTmdbTitlesAgree($localEp, $ep['name'])) {
-                $epName = $ep['name'];
-                $via = 'tmdb';
-            } else {
-                $epName = $localEp;
-                $via = ($ep !== null) ? 'file;tmdb≠' : 'file';
-            }
-        } elseif ($ep !== null) {
+        if ($ep !== null) {
             $epName = $ep['name'];
             $via = 'tmdb';
+        } elseif ($localEp !== '') {
+            $epName = $localEp;
+            $via = 'file';
         } else {
             echo "tmdb video #$id | $show S" . sprintf('%02dE%02d', $season, $episode)
                 . "  →  (no episode)\n";
             continue;
         }
         $code = sprintf('S%02dE%02d', $season, $episode);
-        $out = (!$force && $hasName) ? (string)$row['name'] : "$show: $epName $code";
+        $out = "$show: $epName $code";
         $vote = ($ep !== null) ? ($ep['vote_average'] ?? null) : null;
         $still = ($ep !== null) ? ($ep['still_path'] ?? null) : null;
         $overview = ($ep !== null) ? ($ep['overview'] ?? null) : null;
@@ -376,7 +372,7 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         'UPDATE videos SET name = ?, tmdb_id = ?, updated_at = datetime(\'now\') WHERE id = ?'
     );
     $sqlMov = 'SELECT id, filepath, filename, title, duration_secs, tmdb_id, name,
-                      tmdb_refreshed_at, overview
+                      tmdb_refreshed_at, overview, season, episode
                FROM videos WHERE is_deleted = 0 AND series_id IS NULL ORDER BY id';
     $movRows = [];
     $rm = $db->query($sqlMov);
@@ -389,7 +385,6 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $fn = (string)$row['filename'];
         $dur = $row['duration_secs'] !== null ? (int)$row['duration_secs'] : 0;
         $cachedId = $row['tmdb_id'] !== null ? (int)$row['tmdb_id'] : 0;
-        $hasName = $row['name'] !== null && $row['name'] !== '';
         if ($dur < $minSecs) {
             if ($verbose) echo "tmdb movie #$id  →  (short {$dur}s)\n";
             continue;
@@ -398,9 +393,16 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             if ($verbose) echo "tmdb movie #$id  →  (skip ATGM)\n";
             continue;
         }
+        if (($row['season'] !== null && $row['episode'] !== null)
+            || preg_match('/s\d{1,2}e\d{1,2}/i', $fn)) {
+            if ($verbose) echo "tmdb movie #$id | $fn  →  (skip episode)\n";
+            continue;
+        }
         if ($cachedId > 0) {
             $needOverview = $row['overview'] === null || $row['overview'] === '';
-            if (!$force && !mwTmdbMetaDue($row, $id) && !$needOverview) {
+            $needName = $row['name'] === null || $row['name'] === ''
+                || mwTitleLooksDirty((string)$row['name']);
+            if (!$force && !mwTmdbMetaDue($row, $id) && !$needOverview && !$needName) {
                 if ($verbose) echo "tmdb movie #$id  →  cached\n";
                 continue;
             }
@@ -411,9 +413,7 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             }
             mwTmdbUpsertGenres($db, $hit['genres']);
             $csv = mwTmdbGenreIdsCsv($hit['genres']);
-            $out = ($force || !$hasName)
-                ? mwTmdbFormatShowTitle($hit['name'], $hit['year'])
-                : (string)$row['name'];
+            $out = mwTmdbFormatShowTitle($hit['name'], $hit['year']);
             $stmtMov->reset();
             $stmtMov->bindValue(1, $out);
             $stmtMov->bindValue(2, $cachedId, SQLITE3_INTEGER);
@@ -427,16 +427,8 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
                 continue;
             }
             $score = $hit['vote_average'] !== null ? " score={$hit['vote_average']}" : '';
-            echo ($force || !$hasName)
-                ? "tmdb movie #$id  →  $out [refresh $cachedId]$score\n"
-                : "tmdb movie #$id  →  meta [$csv]$score\n";
+            echo "tmdb movie #$id  →  $out [refresh $cachedId]$score\n";
             $movieNamed++;
-            continue;
-        }
-        if (!$force && $hasName) continue;
-
-        if (preg_match('/s\d{1,2}e\d{1,2}/i', $fn)) {
-            if ($verbose) echo "tmdb movie #$id | $fn  →  (skip SxxExx)\n";
             continue;
         }
 
@@ -601,9 +593,8 @@ function mwEnrichLlm(\SQLite3 $db, bool $force, callable $dbExec): array
                    v.episode_title, s.title AS series_title
             FROM videos v
             LEFT JOIN series s ON s.id = v.series_id
-            WHERE v.is_deleted = 0';
-    if (!$force) $sql .= ' AND (v.name IS NULL OR v.name = \'\')';
-    $sql .= ' ORDER BY v.id';
+            WHERE v.is_deleted = 0 AND (v.name IS NULL OR v.name = \'\')
+            ORDER BY v.id';
     $videoRows = [];
     $rv = $db->query($sql);
     while ($row = $rv->fetchArray(SQLITE3_ASSOC)) $videoRows[] = $row;
@@ -658,7 +649,7 @@ function mwEnrichLlm(\SQLite3 $db, bool $force, callable $dbExec): array
         string $heur
     ) use ($movieTitleFromHint): ?string {
         if ($show !== '-' && $code !== null) return "$show $code";
-        if ($code !== null && ($guess = mwTitleShowFromFilename($fn))) return "$guess $code";
+        if ($code !== null && ($guess = parseShowNameFromFilename($fn))) return "$guess $code";
         if (preg_match('/[a-z]{2,}/i', $heur) && !preg_match('/^S\d{2}E\d{2}\b/i', trim($heur)))
             return $movieTitleFromHint($heur);
         return null;
