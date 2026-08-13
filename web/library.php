@@ -16,8 +16,8 @@ $len = $_GET['len'] ?? '';
 $genre = isset($_GET['genre']) && ctype_digit((string)$_GET['genre']) ? (int)$_GET['genre'] : 0;
 // [sql, label, hint]
 $lenFilters = [
-    'movie'  => ['v.duration_secs >= 3600', 'Movies', '≥1h'],
-    'series' => ['v.duration_secs >= 600 AND v.duration_secs < 3600', 'Series', '10–60m'],
+    'movie'  => ['v.duration_secs >= 3600', 'Long', '≥1h'],
+    'series' => ['v.duration_secs >= 600 AND v.duration_secs < 3600', 'Medium', '10–60m'],
     'clip'   => ['v.duration_secs > 0 AND v.duration_secs < 600', 'Clips', '<10m'],
 ];
 if (!isset($lenFilters[$len])) $len = '';
