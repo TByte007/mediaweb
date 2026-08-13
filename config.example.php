@@ -19,6 +19,11 @@ if (!defined('MW_ROOT')) {
     // Web
     define('MW_BASE_URL', '/mweb/');           // Apache maps /mweb/ -> web/
     define('MW_OWNER', 'YourNick');            // Shown above the MediaWeb logo (empty to hide)
+    define('MW_SUBS_DIR', MW_ROOT . '/subs');  // manager uploads; not under web/
+    define('MW_ALLOW_NETS', [                  // no login; viewer only (empty = login wall)
+        '10.0.0.0/24',
+        '10.10.155.0/24',
+    ]);
 
     // Optional llama-server for TMDB search terms + display gap-fill (empty URL disables; --no-llm also skips)
     define('MW_LLM_URL', '');                  // e.g. http://10.0.0.6:8192

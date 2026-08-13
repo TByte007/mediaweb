@@ -11,6 +11,7 @@ PHP tool that scans video directories, extracts metadata with MediaInfo, and sto
 - Web library with search, genre filter (`?genre=`), thumbnails (TMDB poster when known), and play counts
 - **Series mode** (`?mode=series`): browse show → season → episodes (detected at scan time); series cards show TMDB TV type
 - Browser playback via movi-player; **avbridge** (libav WASM) for files flagged `needs_fix`; player shows TMDB score when enrich has filled it
+- Session login (viewer / manager / admin). Managers can upload sidecar subtitles into a MediaWeb overlay dir (not the media roots). CIDRs in `MW_ALLOW_NETS` browse as Guest (viewer) without an account.
 
 ## Requirements
 
@@ -27,11 +28,12 @@ cp config.example.php config.php
 
 php scan.php --verbose
 php list.php --limit=20
+php users.php add you --role=admin
 ```
 
 Point Apache (or similar) at `web/` under your chosen `MW_BASE_URL`. Map each dir’s `url` prefix to its `fs` tree so the player can fetch media.
 
-Ensure `web/covers/` is writable by the web user.
+Ensure `web/covers/` and `subs/` (`MW_SUBS_DIR`) are writable by the web user. Off-net visitors need `php users.php add`. LAN/VPN CIDRs in `MW_ALLOW_NETS` can watch as Guest without an account.
 
 ## CLI
 
@@ -48,6 +50,12 @@ php list.php --format=HEVC
 php list.php --name="search" --limit=20
 php list.php --count --format=AVC
 php list.php --columns=filename,width,height,duration_secs,needs_fix
+
+php users.php add NAME --role=admin|manager|viewer
+php users.php passwd NAME
+php users.php role NAME ROLE
+php users.php list
+php users.php del NAME
 ```
 
 **Default scan:** skip files already in the DB; probe new ones; adopt moved files (same size+name, else unique size when the old path is gone); mark missing rows `is_deleted=1`. Then `linkSeries()` + `enrichTitles()`. Cron: `php scan.php` is enough when keys are set — it also fills score/poster for rows that already have `tmdb_id` and re-polls them on a weekly-ish schedule. Use `--titles-backfill --force` only for a full display-name rebuild from cached TMDB ids.
@@ -60,6 +68,8 @@ Shared constants live in `config.php` (gitignored). Start from `config.example.p
 |----------|------|
 | `MW_DB` | SQLite path (default `./media.db`) |
 | `MW_BASE_URL` | Web app URL prefix (e.g. `/mweb/`) |
+| `MW_SUBS_DIR` | Overlay subtitle uploads (`./subs/{video_id}/`, not under `web/`) |
+| `MW_ALLOW_NETS` | CIDRs that skip login as viewer (empty = login wall) |
 | `MW_FFMPEG` / `MW_FFPROBE` | Absolute binary paths |
 | `MW_MEDIA_DIRS` | Media roots: `[ 'fs' => path, 'url' => apache_prefix ]` |
 | `MW_TMDB_TOKEN` | Optional TMDB Read Access Token for enrich (empty disables) |

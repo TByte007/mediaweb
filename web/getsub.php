@@ -7,7 +7,9 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../auth.php';
 require_once __DIR__ . '/../subs.php';
+mwRequireLogin();
 
 $id = isset($_GET['id']) && ctype_digit((string)$_GET['id']) ? (int)$_GET['id'] : 0;
 $n = isset($_GET['n']) && ctype_digit((string)$_GET['n']) ? (int)$_GET['n'] : 0;
@@ -25,12 +27,12 @@ $db->close();
 
 if (!$row || !empty($row['is_deleted'])) { http_response_code(404); exit; }
 
-$tracks = findSidecarSubs((string)$row['filepath']);
+$tracks = findSidecarSubs((string)$row['filepath'], $id);
 if (!isset($tracks[$n])) { http_response_code(404); exit; }
 
 $vtt = sidecarToVtt($tracks[$n]['path'], (float)($row['frame_rate'] ?? 0));
 if ($vtt === '') { http_response_code(404); exit; }
 
 header('Content-Type: text/vtt; charset=utf-8');
-header('Cache-Control: public, max-age=86400');
+header('Cache-Control: private, max-age=60');
 echo $vtt;

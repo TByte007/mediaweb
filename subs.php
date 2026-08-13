@@ -6,82 +6,119 @@
 
 declare(strict_types=1);
 
+/** @return array{cvetni: bool, lang: string, label: string} */
+function subClassify(string $path, string $base): array
+{
+    $cvetni = preg_match('/цветни/ui', $base) === 1
+        || preg_match('/(?:^|[._-])cvetni(?:[._-]|$)/i', $base) === 1;
+    $peek = @file_get_contents($path, false, null, 0, 8192);
+    $text = is_string($peek) ? subDecodeBytes($peek) : '';
+    $bg = preg_match('/\p{Cyrillic}/u', $text) === 1
+        || preg_match('/(?:^|[._-])(?:bg|bul|bulgarian)(?:[._-]|$)/i', $base) === 1;
+    return [
+        'cvetni' => $cvetni,
+        'lang' => $bg ? 'bg' : 'und',
+        'label' => $bg ? ('Български' . ($cvetni ? ' (цветни)' : '')) : 'Subtitles',
+    ];
+}
+
 /** @return list<array{path: string, lang: string, label: string, default: bool}> */
-function findSidecarSubs(string $videoPath): array
+function findSidecarSubs(string $videoPath, ?int $videoId = null): array
 {
     $videoPath = str_replace('\\', '/', $videoPath);
     $dir = dirname($videoPath);
-    $dirReal = realpath($dir);
-    if ($dirReal === false) return [];
-    $dirReal = str_replace('\\', '/', $dirReal);
-
-    $videoExt = ['mkv' => 1, 'mp4' => 1, 'avi' => 1, 'mov' => 1, 'webm' => 1, 'wmv' => 1, 'flv' => 1, 'm4v' => 1];
     $subExt = ['srt' => 1, 'vtt' => 1, 'sub' => 1];
-    $sidecars = [];
-    $childDirs = [];
-    $videoCount = 0;
-
-    $h = @opendir($dir);
-    if (!$h) return [];
-    while (($e = readdir($h)) !== false) {
-        if ($e === '.' || $e === '..') continue;
-        $full = $dir . '/' . $e;
-        if (is_dir($full)) {
-            if (subIsChildDir($e)) $childDirs[] = $full;
-            continue;
-        }
-        if (!is_file($full)) continue;
-        $ext = strtolower(pathinfo($e, PATHINFO_EXTENSION));
-        if (isset($videoExt[$ext])) $videoCount++;
-        elseif (isset($subExt[$ext])) $sidecars[] = $full;
-    }
-    closedir($h);
-
-    foreach ($childDirs as $cd) {
-        $ch = @opendir($cd);
-        if (!$ch) continue;
-        while (($e = readdir($ch)) !== false) {
-            if ($e === '.' || $e === '..') continue;
-            $ext = strtolower(pathinfo($e, PATHINFO_EXTENSION));
-            if (!isset($subExt[$ext])) continue;
-            $full = $cd . '/' . $e;
-            if (is_file($full)) $sidecars[] = $full;
-        }
-        closedir($ch);
-    }
-
-    $videoStem = strtolower((string)pathinfo($videoPath, PATHINFO_FILENAME));
-    $videoEp = subEpKey(basename($videoPath));
     $matched = [];
+    $overlayKeys = [];
 
-    foreach ($sidecars as $path) {
-        $real = realpath($path);
-        if ($real === false) continue;
-        $real = str_replace('\\', '/', $real);
-        if (!str_starts_with($real, $dirReal . '/')) continue;
-        $rel = substr($real, strlen($dirReal) + 1);
-        if (substr_count($rel, '/') > 1) continue;
+    if ((int)$videoId > 0) {
+        $overDir = rtrim(str_replace('\\', '/', MW_SUBS_DIR), '/') . '/' . $videoId;
+        $oh = @opendir($overDir);
+        if ($oh) {
+            while (($e = readdir($oh)) !== false) {
+                if ($e === '.' || $e === '..') continue;
+                $ext = strtolower(pathinfo($e, PATHINFO_EXTENSION));
+                if (!isset($subExt[$ext])) continue;
+                $full = $overDir . '/' . $e;
+                if (!is_file($full)) continue;
+                $meta = subClassify($full, (string)pathinfo($e, PATHINFO_FILENAME));
+                $matched[$full] = [
+                    'path' => $full,
+                    'rank' => -1,
+                    'cvetni' => $meta['cvetni'],
+                    'lang' => $meta['lang'],
+                    'label' => $meta['label'],
+                ];
+                $overlayKeys[$meta['lang'] . ':' . (int)$meta['cvetni']] = true;
+            }
+            closedir($oh);
+        }
+    }
 
-        $stem = strtolower((string)pathinfo($real, PATHINFO_FILENAME));
-        $rank = null;
-        if ($stem === $videoStem) $rank = 0;
-        elseif ($videoEp !== null && subEpKey(basename($real)) === $videoEp) $rank = 1;
-        elseif ($videoEp === null && $videoCount === 1) $rank = 2;
-        if ($rank === null) continue;
+    $dirReal = realpath($dir);
+    $h = $dirReal !== false ? @opendir($dir) : false;
+    if ($h) {
+        $dirReal = str_replace('\\', '/', $dirReal);
+        $videoExt = ['mkv' => 1, 'mp4' => 1, 'avi' => 1, 'mov' => 1, 'webm' => 1, 'wmv' => 1, 'flv' => 1, 'm4v' => 1];
+        $sidecars = [];
+        $childDirs = [];
+        $videoCount = 0;
 
-        $base = (string)pathinfo($real, PATHINFO_FILENAME);
-        $cvetni = preg_match('/цветни/ui', $base) === 1;
-        $peek = @file_get_contents($real, false, null, 0, 8192);
-        $text = is_string($peek) ? subDecodeBytes($peek) : '';
-        $bg = preg_match('/\p{Cyrillic}/u', $text) === 1
-            || preg_match('/(?:^|[._-])(?:bg|bul|bulgarian)(?:[._-]|$)/i', $base) === 1;
-        $matched[$real] = [
-            'path' => $real,
-            'rank' => $rank,
-            'cvetni' => $cvetni,
-            'lang' => $bg ? 'bg' : 'und',
-            'label' => $bg ? ('Български' . ($cvetni ? ' (цветни)' : '')) : 'Subtitles',
-        ];
+        while (($e = readdir($h)) !== false) {
+            if ($e === '.' || $e === '..') continue;
+            $full = $dir . '/' . $e;
+            if (is_dir($full)) {
+                if (subIsChildDir($e)) $childDirs[] = $full;
+                continue;
+            }
+            if (!is_file($full)) continue;
+            $ext = strtolower(pathinfo($e, PATHINFO_EXTENSION));
+            if (isset($videoExt[$ext])) $videoCount++;
+            elseif (isset($subExt[$ext])) $sidecars[] = $full;
+        }
+        closedir($h);
+
+        foreach ($childDirs as $cd) {
+            $ch = @opendir($cd);
+            if (!$ch) continue;
+            while (($e = readdir($ch)) !== false) {
+                if ($e === '.' || $e === '..') continue;
+                $ext = strtolower(pathinfo($e, PATHINFO_EXTENSION));
+                if (!isset($subExt[$ext])) continue;
+                $full = $cd . '/' . $e;
+                if (is_file($full)) $sidecars[] = $full;
+            }
+            closedir($ch);
+        }
+
+        $videoStem = strtolower((string)pathinfo($videoPath, PATHINFO_FILENAME));
+        $videoEp = subEpKey(basename($videoPath));
+
+        foreach ($sidecars as $path) {
+            $real = realpath($path);
+            if ($real === false) continue;
+            $real = str_replace('\\', '/', $real);
+            if (!str_starts_with($real, $dirReal . '/')) continue;
+            $rel = substr($real, strlen($dirReal) + 1);
+            if (substr_count($rel, '/') > 1) continue;
+
+            $stem = strtolower((string)pathinfo($real, PATHINFO_FILENAME));
+            $rank = null;
+            if ($stem === $videoStem) $rank = 0;
+            elseif ($videoEp !== null && subEpKey(basename($real)) === $videoEp) $rank = 1;
+            elseif ($videoEp === null && $videoCount === 1) $rank = 2;
+            if ($rank === null) continue;
+
+            $meta = subClassify($real, (string)pathinfo($real, PATHINFO_FILENAME));
+            if (isset($overlayKeys[$meta['lang'] . ':' . (int)$meta['cvetni']])) continue;
+            $matched[$real] = [
+                'path' => $real,
+                'rank' => $rank,
+                'cvetni' => $meta['cvetni'],
+                'lang' => $meta['lang'],
+                'label' => $meta['label'],
+            ];
+        }
     }
 
     $tracks = array_values($matched);

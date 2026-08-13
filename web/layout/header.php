@@ -1,4 +1,4 @@
-<?php require_once __DIR__ . '/helpers.php'; $basePath ??= MW_BASE_URL; $len ??= ''; ?>
+<?php require_once __DIR__ . '/helpers.php'; $basePath ??= MW_BASE_URL; $len ??= ''; $genreFilters ??= []; ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -329,6 +329,13 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
                 else echo number_format($total) . ' videos';
             }
         ?></div>
+        <?php $mwUser = mwUser(); if ($mwUser): ?>
+        <span class="stats"><?= htmlspecialchars($mwUser['username']) ?></span>
+        <a class="len-btn" href="<?= htmlspecialchars($basePath) ?>login.php?logout=1">Logout</a>
+        <?php else: ?>
+        <span class="stats">Guest</span>
+        <a class="len-btn" href="<?= htmlspecialchars($basePath) ?>login.php">Login</a>
+        <?php endif; ?>
     </div>
     <?php
     $showGenreRow = !empty($genreFilters)

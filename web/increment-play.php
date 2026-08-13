@@ -5,6 +5,8 @@ declare(strict_types=1);
 // increment-play.php - AJAX endpoint to increment playback counter
 
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../auth.php';
+mwRequireLogin();
 
 header('Content-Type: text/plain');
 

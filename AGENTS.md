@@ -24,6 +24,8 @@ php list.php --format=HEVC
 php list.php --name="search" --limit=20
 php list.php --count --format=AVC
 php list.php --columns=filename,width,height,duration_secs,needs_fix
+php users.php add NAME --role=admin|manager|viewer
+php users.php list
 ```
 
 **Default behavior:** Skips files already in DB (fast incremental scans). New files get MediaInfo + PTS/`needs_fix` detect. New paths that match a gone file (same `filesize`+`filename`, else unique `filesize`) adopt that row instead of INSERT (keeps plays / names / ids). Missing files marked as `is_deleted=1`. Use `--force-rescan` to re-extract metadata; `--scan-only` to refresh `needs_fix` on candidates (no link/enrich).
@@ -34,6 +36,8 @@ php list.php --columns=filename,width,height,duration_secs,needs_fix
 
 - `MW_DB`: database path (`./media.db`)
 - `MW_BASE_URL`: `/mweb/`
+- `MW_SUBS_DIR`: overlay uploads (`./subs/{video_id}/`, not under `web/`)
+- `MW_ALLOW_NETS`: CIDRs that skip login as viewer (`10.0.0.0/24`, `10.10.155.0/24`; empty = login wall)
 - `MW_FFMPEG`: `/usr/local/bin/ffmpeg` (not on www's PATH)
 - `MW_MEDIA_DIRS`: media roots `[ ['fs' => filesystem_path, 'url' => apache_url_prefix], ... ]`
 - `MW_TMDB_TOKEN` / `MW_TMDB_MIN_SECS`: optional TMDB in enrich (empty token disables; min secs default 600)
@@ -125,15 +129,19 @@ Detection (per top-level folder under a media root): ≥2 season-like child dirs
 ## Web structure
 
 ```
-web/index.php          → router (library, series mode, or video view)
+web/index.php          → router (library, series mode, or video view); login or MW_ALLOW_NETS guest
+web/login.php          → session login / logout (LAN logout returns to library as Guest)
 web/library.php        → search + video grid (excludes is_deleted=1, shows [!] for needs_fix=1)
 web/series.php         → Series mode: shows → seasons → episodes
 series.php             → parseEpisodeFields / linkSeries (used by scan + web)
-subs.php               → findSidecarSubs / sidecarToVtt (play-time .srt/.sub/.vtt → UTF-8 VTT)
-web/view.php → video player (movi-player normally; avbridge-player for needs_fix=1); `<track>` from sidecars
+auth.php               → users table, session, roles (viewer / manager / admin); CIDR guest viewer
+users.php              → CLI add / passwd / role / list / del
+subs.php               → findSidecarSubs / sidecarToVtt (folder sidecars + MW_SUBS_DIR overlay)
+web/view.php → video player (movi-player normally; avbridge-player for needs_fix=1); `<track>` from sidecars; manager upload form
 web/vendor/avbridge/ → avbridge player-browser + libav WASM (lazy-loaded)
 web/getcover.php       → ?id= video/still; ?sid= show poster (else cover_video_id); ?sid=&season= season then show poster; else folder/ffmpeg
-web/getsub.php         → ?id=&n= sidecar as UTF-8 WebVTT (discover next to video; CP1251 / MicroDVD)
+web/getsub.php         → ?id=&n= sidecar as UTF-8 WebVTT (discover next to video + overlay; CP1251 / MicroDVD)
+web/uploadsub.php      → manager/admin POST overlay .srt/.vtt/.sub
 web/increment-play.php → AJAX endpoint for playback count
 web/layout/*           → shared layout components
 ```
@@ -160,9 +168,12 @@ This design is intentionally decoupled from the storage root; you can point URL 
 - Directory has permission-denied folders → use `@opendir` + safe recursion
 - `fetchArray(SQLite3::NUM)` is broken on this BSD setup → use `2` for numeric mode
 - Covers directory `web/covers/` must be writable (0777) by Apache `www` user
+- Overlay subs dir `subs/` (`MW_SUBS_DIR`) must be writable (0777) by `www` — not under `web/`
+- PHP `session.save_path` must be writable by `www` (FreeBSD default `/tmp` is usually OK)
+- Until `php users.php add …` has created a user, off-net `/mweb/` only shows the login page. `MW_ALLOW_NETS` (LAN/VPN) can watch as Guest without an account
 - **ffmpeg not on www user's PATH!** → Use `/usr/local/bin/ffmpeg` explicitly (`MW_FFMPEG` constant)
 - Many video directories already contain `cover.jpg` / `thumb.jpg` files → `getcover.php` uses TMDB path when set (`videos.poster_path` / season / show), else these sidecars, else ffmpeg (video `?id=` only)
-- Sidecar subs (`.srt` / `.sub` / `.vtt`) are discovered at play time (`subs.php`); `getsub.php` converts to UTF-8 VTT (Windows-1251, MicroDVD). Do not hotlink `/notor/….srt`. No TMDB/LLM on this path.
+- Sidecar subs (`.srt` / `.sub` / `.vtt`) are discovered at play time (`subs.php`) from the video folder plus `MW_SUBS_DIR/{id}/`; `getsub.php` converts to UTF-8 VTT (Windows-1251, MicroDVD). Do not hotlink `/notor/….srt`. No TMDB/LLM on this path. `/notor/` and `/act_tor/` stay public; the PHP UI is session-gated except `MW_ALLOW_NETS` (viewer Guest).
 - **Never suggest server remux/re-encode to H.264** to fix browser playback / `needs_fix` — not feasible; use avbridge + Firefox swscale→RGBA in `player-browser.js`
 
 ## FreeBSD notes

@@ -3,8 +3,11 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../auth.php';
 require_once __DIR__ . '/layout/helpers.php';
 require_once __DIR__ . '/../series.php';
+
+mwRequireLogin();
 
 $basePath = MW_BASE_URL;
 $search = trim($_GET['q'] ?? '');

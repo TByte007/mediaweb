@@ -3,9 +3,12 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../auth.php';
 require_once __DIR__ . '/layout/helpers.php';
 require_once __DIR__ . '/../series.php';
 require_once __DIR__ . '/../subs.php';
+
+mwRequireLogin();
 
 $id = (int)$_GET['view'];
 
@@ -112,7 +115,7 @@ if ($videoUrl === null) {
     die('<h1>Not found</h1><p>Video path not mapped to a public URL.</p>');
 }
 
-$sidecarSubs = findSidecarSubs($filepath);
+$sidecarSubs = findSidecarSubs($filepath, $v['id']);
 $trackHtml = '';
 foreach ($sidecarSubs as $i => $t) {
     $trackHtml .= '      <track kind="subtitles" srclang="' . htmlspecialchars($t['lang'])
@@ -265,6 +268,14 @@ $subsLabel = $sidecarSubs !== []
             closer to how VLC invents timestamps, but CPU-heavy and not guaranteed smooth.</p>
         <p>If it still jitters, <a href="<?= $videoUrlEsc ?>" download>download the file</a> and open it in <strong>VLC</strong>.</p>
     </div>
+<?php endif; ?>
+<?php if (mwRoleOk(mwUser()['role'] ?? 'viewer', 'manager')): ?>
+    <form action="<?= MW_BASE_URL ?>uploadsub.php" method="post" enctype="multipart/form-data" style="margin-top:1rem;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <input type="hidden" name="csrf" value="<?= htmlspecialchars(mwCsrfToken()) ?>">
+        <input type="hidden" name="id" value="<?= (int)$v['id'] ?>">
+        <input type="file" name="sub" accept=".srt,.vtt,.sub" required>
+        <button type="submit" class="view-nav-btn" style="cursor:pointer;font:inherit">Upload subtitles</button>
+    </form>
 <?php endif; ?>
 </div>
 </div>
