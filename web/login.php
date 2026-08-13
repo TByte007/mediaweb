@@ -64,14 +64,13 @@ body {
     min-height: 100vh;
 }
 .logo {
-    display: flex; flex-direction: column; gap: 1px;
-    font-size: 21px; font-weight: 700; color: var(--accent);
-    text-decoration: none; white-space: nowrap; line-height: 1.05;
-    margin-bottom: 22px;
+    width: fit-content; margin: 0 auto 28px; text-align: left;
+    font-size: 32px; font-weight: 700; color: var(--accent); line-height: 1.1;
 }
 .logo span { color: var(--text); }
 .logo .logo-owner {
-    font-size: 11px; font-weight: 600; letter-spacing: 0.14em;
+    display: block; margin-bottom: 6px;
+    font-size: 13px; font-weight: 600; letter-spacing: 0.14em;
     text-transform: uppercase; color: var(--muted);
 }
 .login-card {
