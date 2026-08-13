@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/layout/helpers.php';
 require_once __DIR__ . '/../series.php';
+require_once __DIR__ . '/../subs.php';
 
 $id = (int)$_GET['view'];
 
@@ -111,6 +112,16 @@ if ($videoUrl === null) {
     die('<h1>Not found</h1><p>Video path not mapped to a public URL.</p>');
 }
 
+$sidecarSubs = findSidecarSubs($filepath);
+$trackHtml = '';
+foreach ($sidecarSubs as $i => $t) {
+    $trackHtml .= '      <track kind="subtitles" srclang="' . htmlspecialchars($t['lang'])
+        . '" label="' . htmlspecialchars($t['label'])
+        . '" src="' . htmlspecialchars(MW_BASE_URL . 'getsub.php?id=' . $v['id'] . '&n=' . $i) . '"';
+    if ($t['default']) $trackHtml .= ' default';
+    $trackHtml .= ">\n";
+}
+
 $basePath = MW_BASE_URL;
 $playerPref = strtolower((string)($_GET['player'] ?? 'auto'));
 if (!in_array($playerPref, ['auto', 'movi', 'avbridge'], true)) $playerPref = 'auto';
@@ -140,17 +151,20 @@ require __DIR__ . '/layout/header.php';
 <div class="player-wrap" id="player-wrap">
 <?php if ($useAvbridge): ?>
     <avbridge-player id="player" src="<?= $videoUrlEsc ?>" playsinline fit="contain" preferstrategy="fallback">
-      <a slot="top-left" href="<?= MW_BASE_URL ?>" style="color:#fff;text-decoration:none;font-size:13px">&#8592; Library</a>
+<?= $trackHtml ?>      <a slot="top-left" href="<?= MW_BASE_URL ?>" style="color:#fff;text-decoration:none;font-size:13px">&#8592; Library</a>
     </avbridge-player>
 <?php else: ?>
     <!-- sw="auto": HW first, silent software fallback (no "Try Software Decoding" prompt) -->
-    <movi-player id="player" src="<?= $videoUrlEsc ?>" controls sw="auto"></movi-player>
+    <movi-player id="player" src="<?= $videoUrlEsc ?>" controls sw="auto">
+<?= $trackHtml ?>    </movi-player>
 <?php endif; ?>
 </div>
 <?php
 $playerNote = $playerPref !== 'auto' ? 'forced' : ($v['needs_fix'] ? 'needs_fix' : '');
 $audioLabel = $v['audio_tracks'] . ' track' . ($v['audio_tracks'] != 1 ? 's' : '');
-$subsLabel = $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's' : '');
+$subsLabel = $sidecarSubs !== []
+    ? implode(', ', array_column($sidecarSubs, 'label'))
+    : $v['subtitle_tracks'] . ' track' . ($v['subtitle_tracks'] != 1 ? 's' : '');
 ?>
 <div class="info-panel">
     <h1 class="video-title">
