@@ -82,7 +82,7 @@ body {
 }
 .len-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
 .len-btn.active { color: #fff; background: var(--accent); }
-.user-menu { position: relative; flex: 0 0 auto; }
+.user-menu { position: relative; flex: 0 0 auto; margin-left: auto; }
 .user-menu > .len-btn {
     border: 0; background: transparent; cursor: pointer; font: inherit;
 }
@@ -354,7 +354,7 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
             </nav>
         </div>
         <?php else: ?>
-        <a class="len-btn" href="<?= htmlspecialchars($basePath) ?>login.php">Login</a>
+        <a class="len-btn" href="<?= htmlspecialchars($basePath) ?>login.php" style="margin-left:auto">Login</a>
         <?php endif; ?>
     </div>
     <?php
