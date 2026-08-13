@@ -106,7 +106,6 @@ body {
 }
 .genre-row .len-filters { flex-wrap: wrap; }
 .genre-row > select { display: none; width: 100%; max-width: none; }
-.len-length > select { display: none; }
 main { max-width: 1400px; margin: 0 auto; padding: 24px 24px 60px; }
 .info { margin-bottom: 14px; font-size: 12px; color: var(--muted); }
 .info strong { color: var(--accent); }
@@ -311,8 +310,6 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
     .stats, .info, .player-pref { font-size: 15px; }
     .info-chip { font-size: 14px; padding: 6px 12px; }
     .user-menu nav a, .user-menu nav span { font-size: 16px; padding: 10px 12px; }
-    .len-length .len-filters { display: none; }
-    .len-length > select { display: block; }
 }
 @media(max-width:800px) {
     .view-grid { flex-direction: column; }
@@ -341,33 +338,19 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
             <?php if (!empty($sid)): ?><input type="hidden" name="sid" value="<?= (int)$sid ?>"><?php endif; ?>
             <?php if (isset($season) && $season !== null): ?><input type="hidden" name="season" value="<?= (int)$season ?>"><?php endif; ?>
             <?php endif; ?>
-            <?php if (!empty($len) && $browseMode === 'library'): ?>
+            <?php if ($browseMode === 'library' && ($len === 'clip' || $len === 'all')): ?>
             <input type="hidden" name="len" value="<?= htmlspecialchars($len) ?>">
             <?php endif; ?>
             <?php if (!empty($genre)): ?>
             <input type="hidden" name="genre" value="<?= (int)$genre ?>">
             <?php endif; ?>
         </form>
-        <nav class="len-filters" aria-label="Browse mode">
-            <a class="len-btn<?= $browseMode === 'library' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['mode' => null, 'sid' => null, 'season' => null, 'page' => null])) ?>">All</a>
+        <nav class="len-filters" aria-label="Browse">
+            <a class="len-btn<?= $browseMode === 'library' && $len !== 'clip' && $len !== 'all' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['mode' => null, 'sid' => null, 'season' => null, 'len' => null, 'page' => null])) ?>">Movies</a>
             <a class="len-btn<?= $browseMode === 'series' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['mode' => 'series', 'sid' => null, 'season' => null, 'len' => null, 'page' => null])) ?>">TV Series</a>
+            <a class="len-btn<?= $browseMode === 'library' && $len === 'clip' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['mode' => null, 'sid' => null, 'season' => null, 'len' => 'clip', 'page' => null])) ?>">Clips</a>
+            <a class="len-btn<?= $browseMode === 'library' && $len === 'all' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['mode' => null, 'sid' => null, 'season' => null, 'len' => 'all', 'page' => null])) ?>">All</a>
         </nav>
-        <?php if ($browseMode === 'library' && isset($lenFilters)): ?>
-        <div class="len-length">
-            <select class="player-pref" id="len-select" aria-label="Filter by length">
-                <option value="<?= htmlspecialchars(pageUrl(['len' => null, 'page' => null, 'mode' => null])) ?>"<?= $len === '' ? ' selected' : '' ?>>All lengths</option>
-                <?php foreach ($lenFilters as $key => [, $label]): ?>
-                <option value="<?= htmlspecialchars(pageUrl(['len' => $key, 'page' => null, 'mode' => null])) ?>"<?= $len === $key ? ' selected' : '' ?>><?= htmlspecialchars($label) ?></option>
-                <?php endforeach; ?>
-            </select>
-            <nav class="len-filters" aria-label="Filter by length">
-                <a class="len-btn<?= $len === '' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => null, 'page' => null, 'mode' => null])) ?>">All</a>
-                <?php foreach ($lenFilters as $key => [, $label, $hint]): ?>
-                <a class="len-btn<?= $len === $key ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => $key, 'page' => null, 'mode' => null])) ?>" title="<?= htmlspecialchars($hint) ?>"><?= $label ?></a>
-                <?php endforeach; ?>
-            </nav>
-        </div>
-        <?php endif; ?>
         <select class="player-pref" id="player-pref" title="Player override" aria-label="Player">
             <option value="auto">Player: auto</option>
             <option value="movi">Player: movi</option>
@@ -421,9 +404,8 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
     const KEY = 'mw_player';
     const base = <?= json_encode($basePath ?? '/') ?>;
     const sel = document.getElementById('player-pref');
-    for (const gsel of [document.getElementById('genre-select'), document.getElementById('len-select')]) {
-        if (gsel) gsel.addEventListener('change', () => { location.href = gsel.value; });
-    }
+    const gsel = document.getElementById('genre-select');
+    if (gsel) gsel.addEventListener('change', () => { location.href = gsel.value; });
     const form = document.getElementById('search-form');
     const input = document.getElementById('search-input');
     const clear = document.getElementById('search-clear');

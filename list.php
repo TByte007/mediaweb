@@ -211,10 +211,9 @@ if ($doStats) {
 
     $section('Length (UI filters)');
     $printBuckets([
-        ['Movies  (≥1h)', 'duration_secs >= 3600'],
-        ['Series  (10–60m)', 'duration_secs >= 600 AND duration_secs < 3600'],
-        ['Clips   (<10m)', 'duration_secs > 0 AND duration_secs < 600'],
-        ['Unknown (0/null)', 'duration_secs IS NULL OR duration_secs <= 0'],
+        ['Movies  (≥50m)', 'series_id IS NULL AND duration_secs >= 3000'],
+        ['Clips   (<50m)', 'series_id IS NULL AND duration_secs < 3000'],
+        ['TV series', 'series_id IS NOT NULL'],
     ], $n);
 
     if ($statsFull) {

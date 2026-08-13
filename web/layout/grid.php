@@ -1,9 +1,10 @@
 <main class="wrap">
 
-<?php if ($search || $len !== ''): ?>
+<?php if ($search || $len === 'clip' || $len === 'all'): ?>
 <div class="info">Found <strong><?= number_format($total) ?></strong> result<?= $total != 1 ? 's' : '' ?><?php
     if ($search) echo ' for "<strong>' . htmlspecialchars($search) . '</strong>"';
-    if ($len !== '') echo ' in <strong>' . $lenFilters[$len][1] . '</strong>';
+    if ($len === 'clip') echo ' in <strong>Clips</strong>';
+    elseif ($len === 'all') echo ' in <strong>All</strong>';
 ?></div>
 <?php endif; ?>
 

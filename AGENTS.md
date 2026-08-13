@@ -30,7 +30,7 @@ php users.php list
 
 **Default behavior:** Skips files already in DB (fast incremental scans). New files get MediaInfo + PTS/`needs_fix` detect. New paths that match a gone file (same `filesize`+`filename`, else unique `filesize`) adopt that row instead of INSERT (keeps plays / names / ids). Missing files marked as `is_deleted=1`. Use `--force-rescan` to re-extract metadata; `--scan-only` to refresh `needs_fix` on candidates (no link/enrich).
 
-**Series linking + title enrich:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) then `enrichTitles()` in [`titles.php`](titles.php): **dirs/files → (LLM search terms) → TMDB → store id + canonical title + genre_ids + vote_average + poster_path + overview (+ TV `tmdb_type`)**, then LLM/PHP gap-fill for misses. `linkSeries` does not overwrite `series.title` when `tmdb_id` is set. Layers run when configured; skip with empty `MW_TMDB_TOKEN` / `MW_LLM_URL`, unreachable llama, or `--no-tmdb` / `--no-llm` (folder/heur search only without LLM). Details refresh for score/poster/overview runs **only when `tmdb_id` is set**; null stamp or weekly-ish age (hash jitter ± days) marks due; missing `series_seasons` rows or empty show/season overviews also re-fetch series details. `--force` refreshes titles/meta from cached TMDB ids (does not re-search; not needed for first score fill). Web UI prefers `videos.name`; Library/Series support `?genre=` filter; Series cards show TV type; player shows score chip + plot overview when set. Covers: episode/movie `videos.poster_path` (episode = TMDB still); season posters in `series_seasons`; show poster on `series.poster_path`. Overviews: `series.overview` above the season grid, `series_seasons.overview` above the episode grid, `videos.overview` on the player. `getcover.php?id=` / `?sid=` / `?sid=&season=`. Never call TMDB API or the LLM on page views. Use `php scan.php --titles-backfill` to relink + enrich without a MediaInfo walk.
+**Series linking + title enrich:** After each normal scan (not `--scan-only`), `linkSeries()` in [`series.php`](series.php) then `enrichTitles()` in [`titles.php`](titles.php): **dirs/files → (LLM search terms) → TMDB → store id + canonical title + genre_ids + vote_average + poster_path + overview (+ TV `tmdb_type`)**, then LLM/PHP gap-fill for misses. `linkSeries` does not overwrite `series.title` when `tmdb_id` is set. Layers run when configured; skip with empty `MW_TMDB_TOKEN` / `MW_LLM_URL`, unreachable llama, or `--no-tmdb` / `--no-llm` (folder/heur search only without LLM). Details refresh for score/poster/overview runs **only when `tmdb_id` is set**; null stamp or weekly-ish age (hash jitter ± days) marks due; missing `series_seasons` rows or empty show/season overviews also re-fetch series details. `--force` refreshes titles/meta from cached TMDB ids (does not re-search; not needed for first score fill). Web UI prefers `videos.name`; Library defaults to Movies (standalone ≥50m; `?len=clip` / `?len=all`); Library/Series support `?genre=` filter; Series cards show TV type; player shows score chip + plot overview when set. Covers: episode/movie `videos.poster_path` (episode = TMDB still); season posters in `series_seasons`; show poster on `series.poster_path`. Overviews: `series.overview` above the season grid, `series_seasons.overview` above the episode grid, `videos.overview` on the player. `getcover.php?id=` / `?sid=` / `?sid=&season=`. Never call TMDB API or the LLM on page views. Use `php scan.php --titles-backfill` to relink + enrich without a MediaInfo walk.
 
 ## Config (`config.php`)
 
@@ -122,7 +122,7 @@ Purge with: `DELETE FROM videos WHERE is_deleted=1;`
 
 ## Series browse
 
-Web: `?mode=series` → shows → `?mode=series&sid=N` → seasons → `&season=N` → episodes (binge order). Flat Library still lists episodes.
+Web: `?mode=series` → shows → `?mode=series&sid=N` → seasons → `&season=N` → episodes (binge order). All (`?len=all`) still lists episodes in the flat grid; Movies/Clips exclude series-linked files.
 
 Detection (per top-level folder under a media root): ≥2 season-like child dirs with videos, **or** ≥5 files with a parseable episode. Columns: `series` (`root_key`, `title`, `cover_video_id`); on `videos`: `series_id`, `season`, `episode`, `episode_title`.
 
@@ -131,7 +131,7 @@ Detection (per top-level folder under a media root): ≥2 season-like child dirs
 ```
 web/index.php          → router (library, series mode, or video view); login or MW_ALLOW_NETS guest
 web/login.php          → session login / logout (LAN logout returns to library as Guest)
-web/library.php        → search + video grid (excludes is_deleted=1, shows [!] for needs_fix=1)
+web/library.php        → search + video grid (default Movies ≥50m not series; `?len=clip`/`?len=all`; excludes is_deleted=1, shows [!] for needs_fix=1)
 web/series.php         → Series mode: shows → seasons → episodes
 series.php             → parseEpisodeFields / linkSeries (used by scan + web)
 auth.php               → users table, session, roles (viewer / manager / admin); CIDR guest viewer

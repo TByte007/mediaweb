@@ -12,15 +12,10 @@ $dbFile = MW_DB;
 $basePath = MW_BASE_URL;
 
 $search = trim($_GET['q'] ?? '');
-$len = $_GET['len'] ?? '';
 $genre = isset($_GET['genre']) && ctype_digit((string)$_GET['genre']) ? (int)$_GET['genre'] : 0;
-// [sql, label, hint]
-$lenFilters = [
-    'movie'  => ['v.duration_secs >= 3600', 'Long', '≥1h'],
-    'series' => ['v.duration_secs >= 600 AND v.duration_secs < 3600', 'Medium', '10–60m'],
-    'clip'   => ['v.duration_secs > 0 AND v.duration_secs < 600', 'Clips', '<10m'],
-];
-if (!isset($lenFilters[$len])) $len = '';
+// Movies: standalone ≥50m; Clips: standalone <50m. Unknown len → Movies.
+$len = $_GET['len'] ?? '';
+if ($len !== 'all' && $len !== 'clip') $len = 'movie';
 
 $limit = 40; // multiple of 5-column grid
 $offset = (int)(($_GET['page'] ?? 1) - 1) * $limit;
@@ -48,7 +43,8 @@ if ($search) {
     $where[] = 'v.filename LIKE :q OR v.title LIKE :q OR v.directory LIKE :q OR v.name LIKE :q';
     $params['q'] = "%$search%";
 }
-if ($len !== '') $where[] = $lenFilters[$len][0];
+if ($len === 'clip') $where[] = 'v.series_id IS NULL AND v.duration_secs < 3000';
+elseif ($len === 'movie') $where[] = 'v.series_id IS NULL AND v.duration_secs >= 3000';
 if ($genre > 0) {
     $where[] = "(
         (v.series_id IS NOT NULL AND (',' || IFNULL(s.genre_ids,'') || ',') LIKE :genre_like)
