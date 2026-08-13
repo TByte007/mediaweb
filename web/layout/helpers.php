@@ -1,5 +1,7 @@
 <?php
 
+require_once dirname(__DIR__, 2) . '/strip-lists.php';
+
 function fmtDuration(float $secs): string
 {
     $h = intdiv((int)$secs, 3600);
@@ -134,27 +136,16 @@ function prettifyFilename(string $filename): string
     if (preg_match('/\.(mkv|avi|mp4|mov|wmv|m4v|webm|mpe?g|ts|flv)$/i', $base))
         $base = preg_replace('/\.[^.]+$/', '', $base);
 
-    static $noise = [
-        'unrated' => 1, 'internal' => 1, 'proper' => 1, 'repack' => 1, 'limited' => 1,
-        'extended' => 1, 'retail' => 1, 'complete' => 1, 'dual' => 1, 'multi' => 1,
-        'subbed' => 1, 'dubbed' => 1, 'readnfo' => 1, 'nfo' => 1, 'dvdrip' => 1,
-        'bdrip' => 1, 'brrip' => 1, 'bluray' => 1, 'webrip' => 1, 'webdl' => 1,
-        'hdtv' => 1, 'pdtv' => 1, 'dsrip' => 1, 'hdrip' => 1, 'dvdscr' => 1,
-        'xvid' => 1, 'divx' => 1, 'x264' => 1, 'x265' => 1, 'h264' => 1, 'h265' => 1,
-        'hevc' => 1, 'avc' => 1, 'aac' => 1, 'ac3' => 1, 'dts' => 1, 'mp3' => 1,
-        'remux' => 1, 'ntsc' => 1, 'pal' => 1, 'sdc' => 1, 'web' => 1, 'threesixtyp' => 1,
-    ];
     // " - " first, then dots/underscores/spaces. Keep SG-1, 1-10, etc.
     $parts = preg_split('/\s+-\s+|[.\s_]+/', (string)$base);
     $kept = [];
     foreach ($parts as $p) {
         if ($p === '' || $p === '-') continue;
         $l = strtolower($p);
-        if (isset($noise[$l])) continue;
+        if (mwIsStripNoise($l)) continue;
         if (preg_match('/^\d{3,4}p$/', $l)) continue; // 720p / 1080p
-        if (preg_match('/^(web-?dl|blu-?ray)$/', $l)) continue;
         // XviD-UNDEAD / AAC-ANUBIS (codec-group glued with hyphen)
-        if (preg_match('/^([^-]+)-(.+)$/', $l, $m) && isset($noise[$m[1]])) continue;
+        if (preg_match('/^([^-]+)-(.+)$/', $l, $m) && mwIsStripNoise($m[1])) continue;
         $kept[] = $p;
     }
     $base = implode(' ', $kept);

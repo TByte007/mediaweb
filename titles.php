@@ -68,15 +68,7 @@ function enrichTitlesPrintSummary(array $c): void
 
 function mwTitleIsReleaseToken(string $t): bool
 {
-    static $noise = [
-        'korsub' => 1, 'hdrip' => 1, 'bluray' => 1, 'webrip' => 1, 'webdl' => 1,
-        'hdtv' => 1, 'pdtv' => 1, 'dvdrip' => 1, 'bdrip' => 1, 'brrip' => 1,
-        'xvid' => 1, 'x264' => 1, 'x265' => 1, 'h264' => 1, 'h265' => 1, 'hevc' => 1,
-        'ac3' => 1, 'aac' => 1, 'dts' => 1, 'evo' => 1, 'vain' => 1, '2hd' => 1,
-        'rarbg' => 1, 'yify' => 1, 'threesixtyp' => 1, 'proper' => 1, 'repack' => 1, 'internal' => 1,
-    ];
-    $l = strtolower($t);
-    return isset($noise[$l]) || (bool)preg_match('/^\d{3,4}p$/', $l);
+    return mwIsStripNoise($t) || (bool)preg_match('/^\d{3,4}p$/i', $t);
 }
 
 function mwTitleShowFromFilename(string $fn): ?string
@@ -521,15 +513,16 @@ function mwEnrichLlm(\SQLite3 $db, bool $force, callable $dbExec): array
         . '- Keep a year already present in Current title. '
         . '- Strip quality/codec/group/season pack junk only. '
         . '- Never reply without (YYYY).';
+    $groups = implode(', ', array_keys(mwStripLists()['group']));
     $sysVideo = 'Using ONLY words from the user message (file, hint, show), output one display title. '
         . 'Never invent words. Never reuse titles from other videos. '
         . 'Never echo field labels (file/hint/show) in the reply. '
         . 'Keep abbreviations as written (Vol stays Vol, not Volume). '
-        . 'Tags like KORSUB, HDRip, XviD, 2hd, EVO, threesixtyp are NOT titles — ignore them. '
+        . "Tags like KORSUB, HDRip, XviD, and release groups ($groups) are NOT titles — ignore them. "
         . 'Rules: '
         . '(1) If hint or file has a real episode name (not just SxxExx / epNN / a release group), '
         . 'output: {show}: {EpisodeName} {SxxExx}. '
-        . '(2) If there is only SxxExx (or SxxExx plus a release group like 2hd or threesixtyp), output: {show} {SxxExx}. '
+        . '(2) If there is only SxxExx (or SxxExx plus a release group), output: {show} {SxxExx}. '
         . 'If show is missing, take the show name from the file (words before SxxExx). '
         . '(3) For movies, keep the year in parentheses when known, e.g. Title (1993). '
         . 'Always use parentheses around the year: {Title} (YYYY) — never Title YYYY. '
@@ -561,12 +554,12 @@ function mwEnrichLlm(\SQLite3 $db, bool $force, callable $dbExec): array
             || (bool)preg_match('/^(path|heuristic|file|hint)$/i', $reply);
     };
     $movieTitleFromHint = static function (string $heur): string {
-        $h = preg_replace(
-            '/\b(korsub|hdrip|bluray|blu-?ray|webrip|web-?dl|hdtv|dvdrip|xvid|x264|x265|hevc|ac3|aac|dts|evo|vain|2hd|rarbg|yify|threesixtyp)\b/i',
-            ' ',
-            $heur
-        );
-        $h = preg_replace('/\s+/', ' ', trim((string)$h));
+        $kept = [];
+        foreach (preg_split('/\s+/', trim($heur)) ?: [] as $p) {
+            if ($p === '' || mwIsStripNoise($p) || preg_match('/^\d{3,4}p$/i', $p)) continue;
+            $kept[] = $p;
+        }
+        $h = implode(' ', $kept);
         if (preg_match('/^(.*?)(?:\s+)((?:19|20)\d{2})$/', $h, $m))
             return trim($m[1]) . ' (' . $m[2] . ')';
         return $h;

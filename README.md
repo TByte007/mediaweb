@@ -96,6 +96,8 @@ Bulk server-side remux/re-encode to H.264 is intentionally out of scope.
 ```
 scan.php / list.php     CLI
 config.php              local config (from config.example.php)
+strip-lists.php         title junk tokens (quality / edition / group)
+strip-lists.local.php   optional extra tokens (gitignored)
 media.db                SQLite catalog
 web/                    public app
 ```

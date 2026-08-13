@@ -3,6 +3,7 @@ tmp/
 
 # Machine-local config (copy from config.example.php)
 config.php
+strip-lists.local.php
 
 # Library data — do not publish
 media.db*
