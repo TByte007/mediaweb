@@ -93,6 +93,10 @@ button {
 button:hover { filter: brightness(1.08); }
 .err { color: #f0c14d; font-size: 13px; margin-bottom: 14px; }
 .hint { color: var(--muted); font-size: 13px; line-height: 1.45; margin-bottom: 14px; }
+@media(max-width:560px) {
+    label, .err, .hint { font-size: 15px; }
+    .login-card { margin: 8vh 16px 0; padding: 24px 20px; }
+}
 </style>
 </head>
 <body>

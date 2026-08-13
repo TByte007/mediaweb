@@ -142,7 +142,7 @@ function prettifyFilename(string $filename): string
         'hdtv' => 1, 'pdtv' => 1, 'dsrip' => 1, 'hdrip' => 1, 'dvdscr' => 1,
         'xvid' => 1, 'divx' => 1, 'x264' => 1, 'x265' => 1, 'h264' => 1, 'h265' => 1,
         'hevc' => 1, 'avc' => 1, 'aac' => 1, 'ac3' => 1, 'dts' => 1, 'mp3' => 1,
-        'remux' => 1, 'ntsc' => 1, 'pal' => 1, 'sdc' => 1, 'web' => 1,
+        'remux' => 1, 'ntsc' => 1, 'pal' => 1, 'sdc' => 1, 'web' => 1, 'threesixtyp' => 1,
     ];
     // " - " first, then dots/underscores/spaces. Keep SG-1, 1-10, etc.
     $parts = preg_split('/\s+-\s+|[.\s_]+/', (string)$base);

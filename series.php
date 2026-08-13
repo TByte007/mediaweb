@@ -37,7 +37,7 @@ function cleanEpisodeTitle(string $t): string
         'hdtv' => 1, 'pdtv' => 1, 'webrip' => 1, 'webdl' => 1, 'dvdrip' => 1,
         'x264' => 1, 'x265' => 1, 'h264' => 1, 'h265' => 1, 'hevc' => 1, 'xvid' => 1,
         'aac' => 1, 'ac3' => 1, 'dts' => 1, 'proper' => 1, 'repack' => 1, 'internal' => 1,
-        'killers' => 1, 'rarbg' => 1, 'scene' => 1,
+        'killers' => 1, 'rarbg' => 1, 'scene' => 1, 'threesixtyp' => 1,
     ];
     $kept = [];
     foreach (preg_split('/[.\s_-]+/', $t) as $p) {

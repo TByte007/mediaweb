@@ -105,6 +105,8 @@ body {
     border-top: 1px solid rgba(255,255,255,0.04);
 }
 .genre-row .len-filters { flex-wrap: wrap; }
+.genre-row > select { display: none; width: 100%; max-width: none; }
+.len-length > select { display: none; }
 main { max-width: 1400px; margin: 0 auto; padding: 24px 24px 60px; }
 .info { margin-bottom: 14px; font-size: 12px; color: var(--muted); }
 .info strong { color: var(--accent); }
@@ -275,16 +277,42 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
     color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 500;
 }
 .back-link:hover { color: var(--accent); }
+@media(max-width:1100px) {
+    .card-title { font-size: 14px; }
+    .card-meta { font-size: 12px; }
+    .tag, .play-badge { font-size: 11px; padding: 3px 7px; }
+    .len-btn { font-size: 14px; min-height: 36px; padding: 0 12px; }
+    .stats, .info, .player-pref, .back-link { font-size: 14px; }
+    .logo .logo-owner { font-size: 12px; }
+    .info-chip { font-size: 13px; }
+    .meta-k { font-size: 11px; }
+    .meta-v { font-size: 14px; }
+    .meta-v .meta-note { font-size: 12px; }
+    .play-note { font-size: 14px; }
+    .play-note-title { font-size: 11px; }
+    .tmdb-overview { font-size: 15px; }
+    .video-title-sub { font-size: 14px; }
+    .meta-grid { grid-template-columns: repeat(8, 1fr); }
+}
 @media(max-width:900px) {
-    .grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
     .card-title { -webkit-line-clamp: 3; line-clamp: 3; }
+    .wrap { padding: 0 16px; }
+    .genre-row .len-filters { display: none; }
+    .genre-row > select { display: block; }
 }
 @media(max-width:560px) {
     .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
     main { padding-left: 14px; padding-right: 14px; }
-}
-@media(max-width:1100px) {
-    .meta-grid { grid-template-columns: repeat(8, 1fr); }
+    .card-title { font-size: 15px; }
+    .card-meta { font-size: 13px; }
+    .tag, .play-badge { font-size: 12px; }
+    .len-btn { font-size: 15px; min-height: 40px; padding: 0 14px; }
+    .stats, .info, .player-pref { font-size: 15px; }
+    .info-chip { font-size: 14px; padding: 6px 12px; }
+    .user-menu nav a, .user-menu nav span { font-size: 16px; padding: 10px 12px; }
+    .len-length .len-filters { display: none; }
+    .len-length > select { display: block; }
 }
 @media(max-width:800px) {
     .view-grid { flex-direction: column; }
@@ -325,12 +353,20 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
             <a class="len-btn<?= $browseMode === 'series' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['mode' => 'series', 'sid' => null, 'season' => null, 'len' => null, 'page' => null])) ?>">TV Series</a>
         </nav>
         <?php if ($browseMode === 'library' && isset($lenFilters)): ?>
-        <nav class="len-filters" aria-label="Filter by length">
-            <a class="len-btn<?= $len === '' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => null, 'page' => null, 'mode' => null])) ?>">All</a>
-            <?php foreach ($lenFilters as $key => [, $label, $hint]): ?>
-            <a class="len-btn<?= $len === $key ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => $key, 'page' => null, 'mode' => null])) ?>" title="<?= htmlspecialchars($hint) ?>"><?= $label ?></a>
-            <?php endforeach; ?>
-        </nav>
+        <div class="len-length">
+            <select class="player-pref" id="len-select" aria-label="Filter by length">
+                <option value="<?= htmlspecialchars(pageUrl(['len' => null, 'page' => null, 'mode' => null])) ?>"<?= $len === '' ? ' selected' : '' ?>>All lengths</option>
+                <?php foreach ($lenFilters as $key => [, $label]): ?>
+                <option value="<?= htmlspecialchars(pageUrl(['len' => $key, 'page' => null, 'mode' => null])) ?>"<?= $len === $key ? ' selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <nav class="len-filters" aria-label="Filter by length">
+                <a class="len-btn<?= $len === '' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => null, 'page' => null, 'mode' => null])) ?>">All</a>
+                <?php foreach ($lenFilters as $key => [, $label, $hint]): ?>
+                <a class="len-btn<?= $len === $key ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => $key, 'page' => null, 'mode' => null])) ?>" title="<?= htmlspecialchars($hint) ?>"><?= $label ?></a>
+                <?php endforeach; ?>
+            </nav>
+        </div>
         <?php endif; ?>
         <select class="player-pref" id="player-pref" title="Player override" aria-label="Player">
             <option value="auto">Player: auto</option>
@@ -364,6 +400,12 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
     if ($showGenreRow):
     ?>
     <div class="genre-row">
+        <select class="player-pref" id="genre-select" aria-label="Filter by genre">
+            <option value="<?= htmlspecialchars(pageUrl(['genre' => null, 'page' => null])) ?>"<?= $genreActive === 0 ? ' selected' : '' ?>>All genres</option>
+            <?php foreach ($genreFilters as $g): ?>
+            <option value="<?= htmlspecialchars(pageUrl(['genre' => $g['id'], 'page' => null])) ?>"<?= $genreActive === $g['id'] ? ' selected' : '' ?>><?= htmlspecialchars($g['name']) ?></option>
+            <?php endforeach; ?>
+        </select>
         <nav class="len-filters" aria-label="Filter by genre">
             <a class="len-btn<?= $genreActive === 0 ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['genre' => null, 'page' => null])) ?>">All genres</a>
             <?php foreach ($genreFilters as $g): ?>
@@ -379,6 +421,9 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
     const KEY = 'mw_player';
     const base = <?= json_encode($basePath ?? '/') ?>;
     const sel = document.getElementById('player-pref');
+    for (const gsel of [document.getElementById('genre-select'), document.getElementById('len-select')]) {
+        if (gsel) gsel.addEventListener('change', () => { location.href = gsel.value; });
+    }
     const form = document.getElementById('search-form');
     const input = document.getElementById('search-input');
     const clear = document.getElementById('search-clear');

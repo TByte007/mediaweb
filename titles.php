@@ -73,7 +73,7 @@ function mwTitleIsReleaseToken(string $t): bool
         'hdtv' => 1, 'pdtv' => 1, 'dvdrip' => 1, 'bdrip' => 1, 'brrip' => 1,
         'xvid' => 1, 'x264' => 1, 'x265' => 1, 'h264' => 1, 'h265' => 1, 'hevc' => 1,
         'ac3' => 1, 'aac' => 1, 'dts' => 1, 'evo' => 1, 'vain' => 1, '2hd' => 1,
-        'rarbg' => 1, 'yify' => 1, 'proper' => 1, 'repack' => 1, 'internal' => 1,
+        'rarbg' => 1, 'yify' => 1, 'threesixtyp' => 1, 'proper' => 1, 'repack' => 1, 'internal' => 1,
     ];
     $l = strtolower($t);
     return isset($noise[$l]) || (bool)preg_match('/^\d{3,4}p$/', $l);
@@ -525,11 +525,11 @@ function mwEnrichLlm(\SQLite3 $db, bool $force, callable $dbExec): array
         . 'Never invent words. Never reuse titles from other videos. '
         . 'Never echo field labels (file/hint/show) in the reply. '
         . 'Keep abbreviations as written (Vol stays Vol, not Volume). '
-        . 'Tags like KORSUB, HDRip, XviD, 2hd, EVO are NOT titles — ignore them. '
+        . 'Tags like KORSUB, HDRip, XviD, 2hd, EVO, threesixtyp are NOT titles — ignore them. '
         . 'Rules: '
         . '(1) If hint or file has a real episode name (not just SxxExx / epNN / a release group), '
         . 'output: {show}: {EpisodeName} {SxxExx}. '
-        . '(2) If there is only SxxExx (or SxxExx plus a release group like 2hd), output: {show} {SxxExx}. '
+        . '(2) If there is only SxxExx (or SxxExx plus a release group like 2hd or threesixtyp), output: {show} {SxxExx}. '
         . 'If show is missing, take the show name from the file (words before SxxExx). '
         . '(3) For movies, keep the year in parentheses when known, e.g. Title (1993). '
         . 'Always use parentheses around the year: {Title} (YYYY) — never Title YYYY. '
@@ -562,7 +562,7 @@ function mwEnrichLlm(\SQLite3 $db, bool $force, callable $dbExec): array
     };
     $movieTitleFromHint = static function (string $heur): string {
         $h = preg_replace(
-            '/\b(korsub|hdrip|bluray|blu-?ray|webrip|web-?dl|hdtv|dvdrip|xvid|x264|x265|hevc|ac3|aac|dts|evo|vain|2hd|rarbg|yify)\b/i',
+            '/\b(korsub|hdrip|bluray|blu-?ray|webrip|web-?dl|hdtv|dvdrip|xvid|x264|x265|hevc|ac3|aac|dts|evo|vain|2hd|rarbg|yify|threesixtyp)\b/i',
             ' ',
             $heur
         );
