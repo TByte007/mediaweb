@@ -29,7 +29,7 @@ body {
     padding: 14px 0;
 }
 .wrap { max-width: 1400px; margin: 0 auto; padding: 0 24px; }
-.header-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.header-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .logo {
     display: flex; flex-direction: column; gap: 1px;
     font-size: 21px; font-weight: 700; color: var(--accent);
@@ -40,9 +40,9 @@ body {
     font-size: 11px; font-weight: 600; letter-spacing: 0.14em;
     text-transform: uppercase; color: var(--muted);
 }
-.search-wrap { flex: 1 1 220px; max-width: 440px; position: relative; }
+.search-wrap { flex: 1 1 140px; min-width: 120px; max-width: 360px; position: relative; }
 .search-input {
-    width: 100%; height: 44px; padding: 0 42px;
+    width: 100%; height: 36px; padding: 0 38px;
     border-radius: 999px; border: 1px solid rgba(255,255,255,0.06);
     background: rgba(255,255,255,0.03); color: var(--text);
     font-size: 16px; outline: none; transition: border 0.2s, box-shadow 0.2s;
@@ -62,27 +62,43 @@ body {
 .search-clear:hover { color: var(--text); background: rgba(255,255,255,0.06); }
 .search-wrap.has-query .search-clear { display: block; }
 .player-pref {
-    flex: 0 0 auto; height: 44px; padding: 0 14px; border-radius: 999px;
+    flex: 0 0 auto; height: 36px; padding: 0 10px; border-radius: 999px;
     border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.03);
-    color: var(--text); font-size: 15px; outline: none; cursor: pointer;
+    color: var(--text); font-size: 13px; outline: none; cursor: pointer;
 }
 .player-pref:focus { border-color: var(--accent); }
 .player-pref option { color: #1a1a1a; background: #fff; }
 .stats { font-size: 13px; color: var(--muted); white-space: nowrap; }
 .len-filters {
-    display: inline-flex; align-items: stretch; gap: 3px; padding: 4px;
+    display: inline-flex; align-items: stretch; gap: 2px; padding: 2px;
     border-radius: 999px; border: 1px solid rgba(255,255,255,0.06);
     background: rgba(255,255,255,0.03);
 }
 .len-btn {
-    display: inline-flex; align-items: center; min-height: 40px;
-    padding: 0 16px; border-radius: 999px; text-decoration: none;
-    font-size: 14px; font-weight: 600; color: var(--muted);
+    display: inline-flex; align-items: center; min-height: 32px;
+    padding: 0 10px; border-radius: 999px; text-decoration: none;
+    font-size: 13px; font-weight: 600; color: var(--muted);
     transition: color 0.15s, background 0.15s;
 }
 .len-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
 .len-btn.active { color: #fff; background: var(--accent); }
-.len-btn .len-hint { margin-left: 5px; font-size: 12px; font-weight: 500; opacity: 0.55; }
+.user-menu { position: relative; flex: 0 0 auto; }
+.user-menu > .len-btn {
+    border: 0; background: transparent; cursor: pointer; font: inherit;
+}
+.user-menu nav {
+    display: none; position: absolute; right: 0; top: calc(100% - 2px);
+    min-width: 148px; padding: 6px; z-index: 20;
+    background: var(--bg2); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+}
+.user-menu:hover nav, .user-menu:focus-within nav { display: block; }
+.user-menu nav a, .user-menu nav span {
+    display: block; padding: 8px 12px; border-radius: 8px;
+    font-size: 14px; font-weight: 600; color: var(--text); text-decoration: none;
+}
+.user-menu nav a:hover { background: rgba(255,255,255,0.06); }
+.user-menu nav span { color: var(--muted); font-weight: 500; }
 .genre-row {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
     margin-top: 10px; padding-top: 10px;
@@ -286,7 +302,7 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
         <a class="logo" href="<?= $basePath ?>"><?php if (MW_OWNER !== ''): ?><span class="logo-owner"><?= htmlspecialchars(MW_OWNER) ?></span><?php endif; ?>Media<span>Web</span></a>
         <?php
         $browseMode = (($_GET['mode'] ?? '') === 'series' || ($mode ?? '') === 'series') ? 'series' : 'library';
-        $searchPlaceholder = $browseMode === 'series' ? 'Search series...' : 'Search videos...';
+        $searchPlaceholder = $browseMode === 'series' ? 'Search TV series...' : 'Search videos...';
         ?>
         <form class="search-wrap<?= ($search ?? '') !== '' ? ' has-query' : '' ?>" action="<?= $basePath ?>" method="get" id="search-form">
             <span class="search-icon">&#128269;</span>
@@ -305,14 +321,14 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
             <?php endif; ?>
         </form>
         <nav class="len-filters" aria-label="Browse mode">
-            <a class="len-btn<?= $browseMode === 'library' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['mode' => null, 'sid' => null, 'season' => null, 'page' => null])) ?>">Library</a>
-            <a class="len-btn<?= $browseMode === 'series' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['mode' => 'series', 'sid' => null, 'season' => null, 'len' => null, 'page' => null])) ?>">Series</a>
+            <a class="len-btn<?= $browseMode === 'library' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['mode' => null, 'sid' => null, 'season' => null, 'page' => null])) ?>">All</a>
+            <a class="len-btn<?= $browseMode === 'series' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['mode' => 'series', 'sid' => null, 'season' => null, 'len' => null, 'page' => null])) ?>">TV Series</a>
         </nav>
         <?php if ($browseMode === 'library' && isset($lenFilters)): ?>
         <nav class="len-filters" aria-label="Filter by length">
             <a class="len-btn<?= $len === '' ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => null, 'page' => null, 'mode' => null])) ?>">All</a>
             <?php foreach ($lenFilters as $key => [, $label, $hint]): ?>
-            <a class="len-btn<?= $len === $key ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => $key, 'page' => null, 'mode' => null])) ?>"><?= $label ?> <span class="len-hint"><?= htmlspecialchars($hint) ?></span></a>
+            <a class="len-btn<?= $len === $key ? ' active' : '' ?>" href="<?= htmlspecialchars(pageUrl(['len' => $key, 'page' => null, 'mode' => null])) ?>" title="<?= htmlspecialchars($hint) ?>"><?= $label ?></a>
             <?php endforeach; ?>
         </nav>
         <?php endif; ?>
@@ -330,10 +346,14 @@ a.info-chip:hover { background: var(--accent); border-color: var(--accent); colo
             }
         ?></div>
         <?php $mwUser = mwUser(); if ($mwUser): ?>
-        <span class="stats"><?= htmlspecialchars($mwUser['username']) ?></span>
-        <a class="len-btn" href="<?= htmlspecialchars($basePath) ?>login.php?logout=1">Logout</a>
+        <div class="user-menu">
+            <button type="button" class="len-btn" aria-haspopup="true"><?= htmlspecialchars($mwUser['username']) ?></button>
+            <nav>
+                <span>Profile</span>
+                <a href="<?= htmlspecialchars($basePath) ?>login.php?logout=1">Logout</a>
+            </nav>
+        </div>
         <?php else: ?>
-        <span class="stats">Guest</span>
         <a class="len-btn" href="<?= htmlspecialchars($basePath) ?>login.php">Login</a>
         <?php endif; ?>
     </div>
