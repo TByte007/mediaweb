@@ -241,14 +241,18 @@ function pageUrl(array $extra = []): string
  * Genres present in the library (or series-browse only).
  * @return list<array{id: int, name: string}>
  */
-function mwGenresForFilter(\SQLite3 $db, bool $seriesOnly = false): array
+function mwGenresForFilter(\SQLite3 $db, bool $seriesOnly = false, int $minSeriesEps = 0): array
 {
+    $seriesEps = $minSeriesEps > 0
+        ? ' AND (SELECT COUNT(*) FROM videos v WHERE v.series_id = s.id AND v.is_deleted = 0) >= ' . $minSeriesEps
+        : '';
     $sql = $seriesOnly
         ? "SELECT g.id, g.name FROM genres g
            WHERE EXISTS (
                SELECT 1 FROM series s
                JOIN videos v ON v.series_id = s.id AND v.is_deleted = 0
                WHERE (',' || IFNULL(s.genre_ids,'') || ',') LIKE '%,' || g.id || ',%'
+               $seriesEps
            )
            ORDER BY g.name COLLATE NOCASE"
         : "SELECT g.id, g.name FROM genres g

@@ -7,7 +7,8 @@ require_once __DIR__ . '/../auth.php';
 require_once __DIR__ . '/layout/helpers.php';
 require_once __DIR__ . '/../series.php';
 
-mwRequireLogin();
+$user = mwRequireLogin();
+$hideThinSeries = !mwRoleOk($user['role'], 'manager');
 
 $basePath = MW_BASE_URL;
 $search = trim($_GET['q'] ?? '');
@@ -44,6 +45,16 @@ if ($sid > 0) {
         $db->close();
         http_response_code(404);
         die('<h1>Series not found</h1>');
+    }
+    if ($hideThinSeries) {
+        $eps = (int)$db->querySingle(
+            'SELECT COUNT(*) FROM videos WHERE is_deleted = 0 AND series_id = ' . $sid
+        );
+        if ($eps < 3) {
+            $db->close();
+            http_response_code(404);
+            die('<h1>Series not found</h1>');
+        }
     }
     if ($season !== null) {
         $seriesLevel = 'episodes';
@@ -122,7 +133,7 @@ if ($sid > 0) {
         $total = count($seasons);
     }
 } else {
-    $genreFilters = mwGenresForFilter($db, true);
+    $genreFilters = mwGenresForFilter($db, true, $hideThinSeries ? 3 : 0);
     if ($genre > 0 && !in_array($genre, array_column($genreFilters, 'id'), true))
         $genre = 0;
     $where = '1=1';
@@ -135,13 +146,14 @@ if ($sid > 0) {
         $where .= " AND (',' || IFNULL(s.genre_ids,'') || ',') LIKE :genre_like";
         $params['genre_like'] = '%,'.$genre.',%';
     }
+    $having = $hideThinSeries ? ' HAVING COUNT(v.id) >= 3' : '';
     $stmt = $db->prepare(
         "SELECT s.id, s.title, s.tmdb_type,
                 COUNT(v.id) AS eps, COUNT(DISTINCT v.season) AS seasons
          FROM series s
          JOIN videos v ON v.series_id = s.id AND v.is_deleted = 0
          WHERE $where
-         GROUP BY s.id
+         GROUP BY s.id$having
          ORDER BY s.title ASC"
     );
     foreach ($params as $k => $v) $stmt->bindValue($k, $v);
