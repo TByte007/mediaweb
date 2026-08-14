@@ -400,8 +400,10 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         }
         if ($cachedId > 0) {
             $needOverview = $row['overview'] === null || $row['overview'] === '';
-            $needName = $row['name'] === null || $row['name'] === ''
-                || mwTitleLooksDirty((string)$row['name']);
+            $name = (string)$row['name'];
+            $needName = $name === ''
+                || mwTitleLooksDirty($name)
+                || !preg_match('/\((?:19|20)\d{2}\)\s*$/', $name);
             if (!$force && !mwTmdbMetaDue($row, $id) && !$needOverview && !$needName) {
                 if ($verbose) echo "tmdb movie #$id  →  cached\n";
                 continue;
