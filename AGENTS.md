@@ -124,7 +124,7 @@ Purge with: `DELETE FROM videos WHERE is_deleted=1;`
 
 Web: `?mode=series` → shows → `?mode=series&sid=N` → seasons → `&season=N` → episodes (binge order). All (`?len=all`) still lists episodes in the flat grid; Movies/Clips exclude series-linked files.
 
-Detection (per top-level folder under a media root): ≥2 season-like child dirs with videos, **or** ≥5 files with a parseable episode. Loose SxxExx / scene-code files (`bones.924.hdtv`) group by show name into a series even as one-offs. Columns: `series` (`root_key`, `title`, `cover_video_id`); on `videos`: `series_id`, `season`, `episode`, `episode_title`.
+Detection (per top-level folder under a media root): ≥2 season-like child dirs with videos, **or** ≥5 files with a parseable episode. Same-show season packs in different folders share one series row. Loose SxxExx / scene-code files (`bones.924.hdtv`) group by show name into a series even as one-offs. Columns: `series` (`root_key`, `title`, `cover_video_id`); on `videos`: `series_id`, `season`, `episode`, `episode_title`.
 
 ## Web structure
 

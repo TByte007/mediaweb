@@ -296,11 +296,12 @@ function linkSeries(\SQLite3 $db): array
            cover_video_id = excluded.cover_video_id,
            updated_at = datetime(\'now\')'
     );
-    $stmtGetId = $db->prepare('SELECT id FROM series WHERE root_key = ?');
+    $stmtGetId = $db->prepare('SELECT id, title FROM series WHERE root_key = ?');
 
     $seriesCount = 0;
     $linked = 0;
     $keepIds = [];
+    $titleToId = [];
 
     foreach ($byRoot as $key => $info) {
         $withEp = 0;
@@ -314,18 +315,27 @@ function linkSeries(\SQLite3 $db): array
 
         $seriesId = null;
         if ($qualify) {
-            if ($coverId === null && $info['videos'] !== [])
-                $coverId = $info['videos'][0]['id'];
-            $stmtSeries->reset();
-            $stmtSeries->bindValue(1, $key);
-            $stmtSeries->bindValue(2, seriesShowTitle($info['top']));
-            $stmtSeries->bindValue(3, $coverId, $coverId === null ? SQLITE3_NULL : SQLITE3_INTEGER);
-            $stmtSeries->execute();
-            $stmtGetId->reset();
-            $stmtGetId->bindValue(1, $key);
-            $seriesId = (int)$stmtGetId->execute()->fetchArray(2)[0];
-            $keepIds[] = $seriesId;
-            $seriesCount++;
+            $showTitle = seriesShowTitle($info['top']);
+            $loose = mwLooseShowKey($showTitle);
+            $seriesId = $titleToId[$loose] ?? null;
+            if ($seriesId === null) {
+                if ($coverId === null && $info['videos'] !== [])
+                    $coverId = $info['videos'][0]['id'];
+                $stmtSeries->reset();
+                $stmtSeries->bindValue(1, $key);
+                $stmtSeries->bindValue(2, $showTitle);
+                $stmtSeries->bindValue(3, $coverId, $coverId === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+                $stmtSeries->execute();
+                $stmtGetId->reset();
+                $stmtGetId->bindValue(1, $key);
+                $got = $stmtGetId->execute()->fetchArray(SQLITE3_ASSOC);
+                $seriesId = (int)$got['id'];
+                $keepIds[] = $seriesId;
+                $seriesCount++;
+                if ($loose !== '') $titleToId[$loose] = $seriesId;
+                $stored = mwLooseShowKey((string)$got['title']);
+                if ($stored !== '') $titleToId[$stored] = $seriesId;
+            }
         }
 
         foreach ($info['videos'] as $v) {
@@ -359,17 +369,6 @@ function linkSeries(\SQLite3 $db): array
     }
     $rsFn->finalize();
 
-    $titleToId = [];
-    if ($keepIds !== []) {
-        $in = implode(',', array_map('intval', $keepIds));
-        $rsT = $db->query("SELECT id, title FROM series WHERE id IN ($in)");
-        while ($row = $rsT->fetchArray(SQLITE3_ASSOC)) {
-            $k = mwLooseShowKey((string)$row['title']);
-            if ($k !== '') $titleToId[$k] = (int)$row['id'];
-        }
-        $rsT->finalize();
-    }
-
     $stmtLink = $db->prepare('UPDATE videos SET series_id = ?, tmdb_id = NULL WHERE id = ?');
     foreach ($byShow as $key => $grp) {
         $seriesId = $titleToId[$key] ?? null;
@@ -396,8 +395,10 @@ function linkSeries(\SQLite3 $db): array
 
     if ($keepIds !== []) {
         $in = implode(',', array_map('intval', $keepIds));
+        $db->exec("DELETE FROM series_seasons WHERE series_id NOT IN ($in)");
         $db->exec("DELETE FROM series WHERE id NOT IN ($in)");
     } else {
+        $db->exec('DELETE FROM series_seasons');
         $db->exec('DELETE FROM series');
     }
 
