@@ -37,3 +37,10 @@ CREATE TABLE series_seasons (
     poster_path TEXT, overview TEXT,
     PRIMARY KEY (series_id, season)
 );
+CREATE TABLE users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL CHECK (role IN ('viewer', 'manager', 'admin')),
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
