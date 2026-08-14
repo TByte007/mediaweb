@@ -175,7 +175,7 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
     );
     $seriesRows = [];
     $rs = $db->query(
-        'SELECT id, root_key, title, tmdb_id, tmdb_refreshed_at, overview FROM series ORDER BY id'
+        'SELECT id, root_key, title, tmdb_id, tmdb_refreshed_at FROM series ORDER BY id'
     );
     while ($row = $rs->fetchArray(SQLITE3_ASSOC)) $seriesRows[] = $row;
     $rs->finalize();
@@ -190,17 +190,7 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             continue;
         }
         if ($cachedId > 0) {
-            $seas = $db->querySingle(
-                'SELECT COUNT(*) AS n,
-                        SUM(CASE WHEN overview IS NOT NULL AND overview != \'\' THEN 1 ELSE 0 END) AS ov
-                 FROM series_seasons WHERE series_id = ' . $id,
-                true
-            );
-            $seasonCount = (int)($seas['n'] ?? 0);
-            $needGap = $seasonCount === 0
-                || ($seasonCount > 0 && (int)($seas['ov'] ?? 0) === 0)
-                || $row['overview'] === null || $row['overview'] === '';
-            if (!$force && !mwTmdbMetaDue($row, $id) && !$needGap) {
+            if (!$force && !mwTmdbMetaDue($row, $id)) {
                 if ($verbose) echo "tmdb series #$id | {$row['title']}  →  cached\n";
                 continue;
             }
@@ -371,7 +361,7 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         'UPDATE videos SET name = ?, tmdb_id = ?, updated_at = datetime(\'now\') WHERE id = ?'
     );
     $sqlMov = 'SELECT id, filepath, filename, title, duration_secs, tmdb_id, name,
-                      tmdb_refreshed_at, overview, season, episode
+                      tmdb_refreshed_at, season, episode
                FROM videos WHERE is_deleted = 0 AND series_id IS NULL ORDER BY id';
     $movRows = [];
     $rm = $db->query($sqlMov);
@@ -403,12 +393,11 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             continue;
         }
         if ($cachedId > 0) {
-            $needOverview = $row['overview'] === null || $row['overview'] === '';
             $name = (string)$row['name'];
             $needName = $name === ''
                 || mwTitleLooksDirty($name)
                 || !preg_match('/\((?:19|20)\d{2}\)\s*$/', $name);
-            if (!$force && !mwTmdbMetaDue($row, $id) && !$needOverview && !$needName) {
+            if (!$force && !mwTmdbMetaDue($row, $id) && !$needName) {
                 if ($verbose) echo "tmdb movie #$id  →  cached\n";
                 continue;
             }
