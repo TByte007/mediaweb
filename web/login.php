@@ -48,6 +48,7 @@ $csrf = mwCsrfToken();
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MediaWeb - Sign in</title>
+<?php require __DIR__ . '/layout/og.php'; ?>
 <style>
 :root {
     --bg: #0b0d14;

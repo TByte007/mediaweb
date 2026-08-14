@@ -5,6 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MediaWeb - <?= htmlspecialchars($pageTitle ?? (!empty($search) ? $search : 'Video Library')) ?></title>
+<?php require __DIR__ . '/og.php'; ?>
 <style>
 :root {
     --bg: #0b0d14;

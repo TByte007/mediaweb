@@ -19,6 +19,7 @@ if (!defined('MW_ROOT')) {
     // Web
     define('MW_BASE_URL', '/mweb/');           // Apache maps /mweb/ -> web/
     define('MW_OWNER', 'YourNick');            // Shown above the MediaWeb logo (empty to hide)
+    define('MW_OG_IMAGE', '');                 // absolute URL for chat/link previews (empty = none)
     define('MW_SUBS_DIR', MW_ROOT . '/subs');  // manager uploads; not under web/
     define('MW_ALLOW_NETS', [                  // no login; viewer only (empty = login wall)
         '10.0.0.0/24',
