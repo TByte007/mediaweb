@@ -292,22 +292,17 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
 
     $stmtEp = $db->prepare(
         'UPDATE videos SET name = ?, vote_average = ?, poster_path = ?, overview = ?,
-         updated_at = datetime(\'now\') WHERE id = ?'
+         tmdb_refreshed_at = datetime(\'now\'), updated_at = datetime(\'now\') WHERE id = ?'
     );
     $sqlEp = 'SELECT v.id, v.filepath, v.duration_secs, v.season, v.episode,
-                     v.episode_title, v.name, v.vote_average, v.poster_path, v.overview,
+                     v.episode_title, v.name, v.tmdb_refreshed_at,
                      s.title AS series_title, s.tmdb_id
               FROM videos v
               JOIN series s ON s.id = v.series_id
               WHERE v.is_deleted = 0
                 AND v.season IS NOT NULL AND v.episode IS NOT NULL
-                AND s.tmdb_id IS NOT NULL';
-    if (!$force)
-        $sqlEp .= ' AND ((v.name IS NULL OR v.name = \'\') OR v.name NOT LIKE \'%: %\''
-            . ' OR v.vote_average IS NULL OR v.vote_average <= 0'
-            . ' OR v.poster_path IS NULL OR v.poster_path = \'\''
-            . ' OR v.overview IS NULL OR v.overview = \'\')';
-    $sqlEp .= ' ORDER BY v.id';
+                AND s.tmdb_id IS NOT NULL
+              ORDER BY v.id';
     $epRows = [];
     $rv = $db->query($sqlEp);
     while ($row = $rv->fetchArray(SQLITE3_ASSOC)) $epRows[] = $row;
@@ -323,6 +318,10 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         }
         if (mwTmdbPathIsAtgm($fp)) {
             if ($verbose) echo "tmdb video #$id  →  (skip ATGM)\n";
+            continue;
+        }
+        if (!$force && str_contains((string)$row['name'], ': ') && !mwTmdbMetaDue($row, $id)) {
+            if ($verbose) echo "tmdb video #$id  →  cached\n";
             continue;
         }
         $season = (int)$row['season'];
@@ -392,6 +391,11 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         if (mwTmdbPathIsAtgm($fp)) {
             if ($verbose) echo "tmdb movie #$id  →  (skip ATGM)\n";
             continue;
+        }
+        foreach (explode('/', str_replace('\\', '/', $fp)) as $seg) {
+            if (!isSeriesJunkDir($seg)) continue;
+            if ($verbose) echo "tmdb movie #$id  →  (skip extras)\n";
+            continue 2;
         }
         if (($row['season'] !== null && $row['episode'] !== null)
             || preg_match('/s\d{1,2}e\d{1,2}/i', $fn)) {
