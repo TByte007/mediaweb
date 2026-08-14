@@ -40,7 +40,7 @@ $where = ['v.is_deleted = 0'];
 $params = [];
 
 if ($search) {
-    $where[] = 'v.filename LIKE :q OR v.title LIKE :q OR v.directory LIKE :q OR v.name LIKE :q';
+    $where[] = '(v.filename LIKE :q OR v.title LIKE :q OR v.directory LIKE :q OR v.name LIKE :q)';
     $params['q'] = "%$search%";
 }
 if ($len === 'clip') $where[] = 'v.series_id IS NULL AND v.duration_secs < 3000';

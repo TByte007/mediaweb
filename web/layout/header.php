@@ -118,9 +118,12 @@ main { max-width: 1400px; margin: 0 auto; padding: 24px 24px 60px; }
 }
 .card:hover { transform: translateY(-2px); box-shadow: 0 10px 36px rgba(0,0,0,0.5); border-color: rgba(94,114,228,0.3); }
 .thumb {
-    position: relative; width: 100%; padding-top: 56.25%; background: #06080e;
+    position: relative; width: 100%; aspect-ratio: 3 / 4; background: #06080e;
 }
-.thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.thumb img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; object-position: center 18%;
+}
 .tags { position: absolute; bottom: 6px; right: 6px; display: flex; gap: 4px; }
 .tag {
     padding: 2px 6px; border-radius: 4px;
