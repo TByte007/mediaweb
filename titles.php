@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 /**
  * @return array{
+ *   leftover: int,
  *   tmdb_series: int, tmdb_ep: int, tmdb_movie: int,
  *   llm_series: int, llm_video: int,
  *   php_video: int
@@ -18,6 +19,7 @@ declare(strict_types=1);
 function enrichTitles(\SQLite3 $db, bool $force, bool $useTmdb, bool $useLlm, bool $verbose = false): array
 {
     $counts = [
+        'leftover' => 0,
         'tmdb_series' => 0, 'tmdb_ep' => 0, 'tmdb_movie' => 0,
         'llm_series' => 0, 'llm_video' => 0, 'php_video' => 0,
     ];
@@ -37,6 +39,8 @@ function enrichTitles(\SQLite3 $db, bool $force, bool $useTmdb, bool $useLlm, bo
     };
 
     $llmOk = $useLlm && mwLlmEnabled() && mwLlmAvailable();
+
+    $counts['leftover'] = mwLinkLeftoverShows($db, $llmOk);
 
     if ($useTmdb && mwTmdbEnabled())
         $counts = array_merge($counts, mwEnrichTmdb($db, $force, $llmOk, $verbose, $dbExec));
@@ -61,9 +65,127 @@ function enrichTitles(\SQLite3 $db, bool $force, bool $useTmdb, bool $useLlm, bo
 function enrichTitlesPrintSummary(array $c): void
 {
     echo "Title enrich complete.\n";
+    echo "  Leftover: {$c['leftover']} videos attached\n";
     echo "  TMDB:  series={$c['tmdb_series']} episodes={$c['tmdb_ep']} movies={$c['tmdb_movie']}\n";
     echo "  LLM:   series={$c['llm_series']} videos={$c['llm_video']}\n";
     echo "  PHP:   videos={$c['php_video']}\n";
+}
+
+/**
+ * Last resort: unlinked TV-like files → existing series row (unique key or LLM pick).
+ * @return int videos attached
+ */
+function mwLinkLeftoverShows(\SQLite3 $db, bool $llmOk): int
+{
+    $tok = static function (string $title): array {
+        $out = [];
+        foreach (preg_split('/\s+/', mwLooseShowKey($title)) ?: [] as $t) {
+            if ($t === '' || $t === 'tv' || $t === 'series' || mwIsStripNoise($t)) continue;
+            if (preg_match('/^(?:19|20)\d{2}$/', $t)) continue;
+            $out[$t] = $t;
+        }
+        return array_values($out);
+    };
+
+    $catalog = [];
+    $rs = $db->query('SELECT id, title FROM series ORDER BY id');
+    while ($row = $rs->fetchArray(SQLITE3_ASSOC)) {
+        $t = $tok((string)$row['title']);
+        if ($t === []) continue;
+        $catalog[] = ['id' => (int)$row['id'], 'title' => (string)$row['title'], 'tok' => $t];
+    }
+    $rs->finalize();
+    if ($catalog === []) return 0;
+
+    $byRoot = [];
+    $rv = $db->query(
+        'SELECT id, filepath, filename, season FROM videos
+         WHERE is_deleted = 0 AND series_id IS NULL'
+    );
+    while ($row = $rv->fetchArray(SQLITE3_ASSOC)) {
+        $fp = (string)$row['filepath'];
+        $fn = (string)$row['filename'];
+        if (mwTmdbPathIsAtgm($fp)) continue;
+        foreach (explode('/', str_replace('\\', '/', $fp)) as $seg) {
+            if (isSeriesJunkDir($seg)) continue 2;
+        }
+        if ($row['season'] === null && !mwFilenameHasEpisodeCode($fn)) continue;
+        $root = showRootFromPath($fp);
+        if ($root === null) continue;
+        $key = $root['root_key'];
+        if (!isset($byRoot[$key]))
+            $byRoot[$key] = ['top' => $root['top'], 'ids' => [], 'fns' => []];
+        $byRoot[$key]['ids'][] = (int)$row['id'];
+        if (count($byRoot[$key]['fns']) < 3) $byRoot[$key]['fns'][] = $fn;
+    }
+    $rv->finalize();
+    if ($byRoot === []) return 0;
+
+    $stmt = $db->prepare('UPDATE videos SET series_id = ?, tmdb_id = NULL WHERE id = ?');
+    $sys = 'You match a TV folder to one existing library series. '
+        . 'Reply with exactly one line: pick: L3  or  pick: none. '
+        . 'Pick only a listed L-number. none if none fit. Nothing else.';
+
+    $linked = 0;
+    foreach ($byRoot as $info) {
+        $top = $info['top'];
+        $qTok = $tok(parseShowNameFromFilename($info['fns'][0]) ?? seriesShowTitle($top));
+        $hits = [];
+        if ($qTok !== []) {
+            $need = min(2, count($qTok));
+            $qset = array_flip($qTok);
+            foreach ($catalog as $c) {
+                $n = 0;
+                foreach ($c['tok'] as $t) {
+                    if (isset($qset[$t])) $n++;
+                }
+                if ($n < $need) continue;
+                $hits[] = $c + ['overlap' => $n];
+            }
+            usort($hits, static fn($a, $b) => $b['overlap'] <=> $a['overlap']);
+            $hits = array_slice($hits, 0, 8);
+        }
+
+        $sid = null;
+        $via = 'php';
+        $title = $hits[0]['title'] ?? '';
+        if (count($hits) === 1) {
+            $sid = $hits[0]['id'];
+        } elseif (count($hits) >= 2 && $llmOk) {
+            $lines = [];
+            foreach ($hits as $i => $h) {
+                $year = mwTmdbYearFromText($h['title']) ?? 'none';
+                $lines[] = 'L' . ($i + 1) . " series_id={$h['id']} title={$h['title']} year=$year";
+            }
+            $user = "Folder: $top\nSamples:\n- " . implode("\n- ", $info['fns'])
+                . "\nCandidates:\n" . implode("\n", $lines);
+            $out = mwLlmChat($sys, $user);
+            $via = 'llm';
+            if (is_string($out) && preg_match('/\bpick:\s*(none|L(\d+))\b/i', $out, $m)
+                && strtolower($m[1]) !== 'none') {
+                $idx = (int)$m[2] - 1;
+                if (isset($hits[$idx])) {
+                    $sid = $hits[$idx]['id'];
+                    $title = $hits[$idx]['title'];
+                }
+            }
+        }
+
+        if ($sid === null) {
+            $why = count($hits) >= 2 ? ($llmOk ? ' (llm)' : ' (need llm)') : '';
+            echo "leftover | $top  →  none$why\n";
+            continue;
+        }
+        echo "leftover | $top  →  series #$sid $title ($via)\n";
+        foreach ($info['ids'] as $vid) {
+            $stmt->reset();
+            $stmt->bindValue(1, $sid, SQLITE3_INTEGER);
+            $stmt->bindValue(2, $vid, SQLITE3_INTEGER);
+            $stmt->execute();
+        }
+        $linked += count($info['ids']);
+    }
+    return $linked;
 }
 
 function mwTitleIsReleaseToken(string $t): bool
@@ -361,7 +483,7 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         'UPDATE videos SET name = ?, tmdb_id = ?, updated_at = datetime(\'now\') WHERE id = ?'
     );
     $sqlMov = 'SELECT id, filepath, filename, title, duration_secs, tmdb_id, name,
-                      tmdb_refreshed_at, season, episode
+                      tmdb_refreshed_at, season
                FROM videos WHERE is_deleted = 0 AND series_id IS NULL ORDER BY id';
     $movRows = [];
     $rm = $db->query($sqlMov);
@@ -387,8 +509,7 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             if ($verbose) echo "tmdb movie #$id  →  (skip extras)\n";
             continue 2;
         }
-        if (($row['season'] !== null && $row['episode'] !== null)
-            || preg_match('/s\d{1,2}e\d{1,2}/i', $fn)) {
+        if ($row['season'] !== null || mwFilenameHasEpisodeCode($fn)) {
             if ($verbose) echo "tmdb movie #$id | $fn  →  (skip episode)\n";
             continue;
         }

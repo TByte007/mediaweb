@@ -19,8 +19,9 @@ function isSeriesJunkDir(string $base): bool
 
 function parseSeasonFromDirName(string $base): ?int
 {
-    // Episode tokens in a dir name are not a season label
-    if (preg_match('/s\d{1,2}e\d{1,2}/i', $base)) return null;
+    // Episode tokens / S01-S03 ranges are not a season label
+    if (preg_match('/s\d{1,2}[.\s_-]*e\d{1,2}/i', $base)) return null;
+    if (preg_match('/\bs\d{1,2}\s*[-–]\s*s?\d{1,2}\b/i', $base)) return null;
     if (preg_match('/(?:^|[.\s_-])(?:season|series|seizoen)[.\s_-]*(\d{1,2})(?:[.\s_-]|$)/i', $base, $m))
         return (int)$m[1];
     if (preg_match('/(?:^|[.\s_-])s(\d{1,2})(?:[.\s_-]|$)/i', $base, $m))
@@ -31,6 +32,7 @@ function parseSeasonFromDirName(string $base): ?int
 function cleanEpisodeTitle(string $t): string
 {
     $t = preg_replace('/\[[^\]]*\]/', ' ', $t);
+    $t = preg_replace('/\([^)]*\d{3,4}p[^)]*\)/i', ' ', $t);
     // Trailing scene group only (ALLCAPS): .DIMENSION / -KILLERS — not title words (.Grace)
     $t = preg_replace('/[-.][A-Z][A-Z0-9]{1,15}$/', '', $t);
     $kept = [];
@@ -45,7 +47,7 @@ function cleanEpisodeTitle(string $t): string
         if ($isAnd || $isPartNum) {
             if ($kept === []) continue;
             $prev = strtolower($kept[count($kept) - 1]);
-            if (!preg_match('/^(part|pt|episode|ep|\d{1,2}|and|&)$/', $prev)) continue;
+            if (!preg_match('/^(part|pt|episode|ep|\d{1,2}|and|&|of)$/', $prev)) continue;
         }
         $kept[] = $p;
     }
@@ -75,11 +77,21 @@ function parseSceneEpisode(string $code, string $rest): ?array
     return ['season' => $season, 'episode' => $episode];
 }
 
+/** S01E01 / S01 E01 / S01.E01, or scene SEE/SSEE (bones.924.hdtv). */
+function mwFilenameHasEpisodeCode(string $name): bool
+{
+    $base = pathinfo($name, PATHINFO_FILENAME);
+    if (preg_match('/s\d{1,2}[.\s_-]*e\d{1,2}/i', $base)) return true;
+    if (preg_match('/[.\s_-](\d{3,4})[.\s_-](.+)$/i', $base, $m)
+        && parseSceneEpisode($m[1], $m[2]) !== null) return true;
+    return false;
+}
+
 /** Show name from an episode filename (SxxExx or scene code). */
 function parseShowNameFromFilename(string $filename): ?string
 {
     $base = pathinfo($filename, PATHINFO_FILENAME);
-    if (preg_match('/^(.+?)[.\-_ ]s\d{1,2}e\d{1,2}\b/i', $base, $m)) {
+    if (preg_match('/^(.+?)[.\-_ ]s\d{1,2}[.\s_-]*e\d{1,2}\b/i', $base, $m)) {
         $s = prettifyFilename($m[1]);
         return $s !== '' ? $s : null;
     }
@@ -127,7 +139,7 @@ function parseEpisodeFields(string $filepath): array
         $d = $next;
     }
 
-    if (preg_match('/s(\d{1,2})e(\d{1,2})(.*)$/i', $stem, $m)
+    if (preg_match('/s(\d{1,2})[.\s_-]*e(\d{1,2})(.*)$/i', $stem, $m)
         || preg_match('/\bseason\s*(\d{1,2})\s+episode\s*(\d{1,3})\b(.*)$/i', $stem, $m)) {
         $out['season'] = (int)$m[1];
         $out['episode'] = (int)$m[2];
