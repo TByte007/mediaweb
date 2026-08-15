@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/config.php';
 
-$opts = getopt('', ['db:', 'format:', 'name:', 'limit:', 'offset:', 'count', 'columns:', 'stats', 'stats-full', 'help']);
+$opts = getopt('', ['db:', 'format:', 'name:', 'limit:', 'offset:', 'count', 'columns:', 'stats', 'stats-full', 'deleted', 'help']);
 $dbFile  = MW_DB;
 $format  = null;
 $search  = null;
@@ -24,9 +24,10 @@ Options:
     --limit=N       Max results (default: 50)
     --offset=N      Skip N results
     --count         Only show total matching count
-    --stats         Compact library stats (respects --format / --name)
+    --stats         Compact library stats (respects --format / --name / --deleted)
     --stats-full    Verbose stats (bands, tops, oddities, …)
     --columns=C     Comma-separated columns or "all" (default: compact view)
+    --deleted       Only soft-deleted rows (is_deleted=1; default hides them)
     --help          Show this help
 
 Examples:
@@ -34,6 +35,7 @@ Examples:
     php list.php --name="guardian" --limit=20
     php list.php --format=AVC --name="season" --columns=filename,width,height,duration_secs
     php list.php --count --format=HEVC
+    php list.php --deleted
     php list.php --stats
     php list.php --stats-full
 USAGE;
@@ -76,7 +78,8 @@ $fmtSize = function(int $bytes): string {
     return round($bytes / 1_099_511_627_776, 2) . ' TB';
 };
 
-$where = ['is_deleted = 0'];
+$onlyDeleted = isset($opts['deleted']);
+$where = [$onlyDeleted ? 'is_deleted = 1' : 'is_deleted = 0'];
 $binds = [];
 if ($format) { $where[] = 'video_format = ?'; $binds[] = $format; }
 if ($search) { $where[] = 'filename LIKE ?'; $binds[] = "%$search%"; }
@@ -153,6 +156,7 @@ if ($doStats) {
     $note = [];
     if ($format) $note[] = "format=$format";
     if ($search) $note[] = "name~*$search*";
+    if ($onlyDeleted) $note[] = 'deleted';
     echo 'MediaWeb library stats' . ($statsFull ? ' (full)' : '')
         . ($note ? '  [' . implode(', ', $note) . ']' : '') . "\n";
     echo "Database: $dbFile\n";
@@ -487,7 +491,7 @@ if ($columns === 'default' || $columns === 'compact') {
         'id', 'filepath', 'filename', 'directory', 'filesize_bytes',
         'duration_secs', 'video_format', 'video_codec', 'width', 'height',
         'aspect_ratio', 'frame_rate', 'video_bitrate', 'audio_tracks',
-        'subtitle_tracks', 'title', 'scanned_at', 'updated_at', 'needs_fix'
+        'subtitle_tracks', 'title', 'scanned_at', 'updated_at', 'needs_fix', 'is_deleted'
     ];
     foreach ($cols as $c) {
         if (!in_array($c, $allowed, true)) {

@@ -24,6 +24,7 @@ php list.php --format=HEVC
 php list.php --name="search" --limit=20
 php list.php --count --format=AVC
 php list.php --columns=filename,width,height,duration_secs,needs_fix
+php list.php --deleted
 php users.php add NAME --role=admin|manager|viewer
 php users.php list
 ```
