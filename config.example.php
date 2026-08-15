@@ -31,6 +31,9 @@ if (!defined('MW_ROOT')) {
     define('MW_LLM_MODEL', '');                // required on multi-model routers
     define('MW_LLM_TIMEOUT', 60);
     define('MW_LLM_PARALLEL', 1);              // 1=serial; dense~4; MoE~8
+    define('MW_LLM_TEMPERATURE', 0.1);         // low: titles / pick lines
+    define('MW_LLM_MAX_TOKENS', 256);
+    define('MW_LLM_THINKING', false);          // Qwen3.8 thinks by default; keep off
 
     // Optional TMDB for title enrich via LLM search terms (empty token disables; --no-tmdb also skips)
     define('MW_TMDB_TOKEN', '');               // Read Access Token (Bearer), not the API Key

@@ -42,7 +42,7 @@ php users.php list
 - `MW_MEDIA_DIRS`: media roots `[ ['fs' => filesystem_path, 'url' => apache_url_prefix], ... ]`
 - `MW_TMDB_TOKEN` / `MW_TMDB_MIN_SECS`: optional TMDB in enrich (empty token disables; min secs default 600)
 - `MW_TMDB_REFRESH_DAYS` / `MW_TMDB_REFRESH_JITTER`: score/poster re-poll interval (default 7±3 days)
-- `MW_LLM_URL` / `MW_LLM_MODEL` / `MW_LLM_TIMEOUT` / `MW_LLM_PARALLEL`: optional llama-server in enrich (empty URL disables; parallel = concurrent chat requests, 1=serial)
+- `MW_LLM_URL` / `MW_LLM_MODEL` / `MW_LLM_TIMEOUT` / `MW_LLM_PARALLEL` / `MW_LLM_TEMPERATURE` / `MW_LLM_MAX_TOKENS` / `MW_LLM_THINKING`: optional llama-server in enrich (empty URL disables; parallel = concurrent chat requests, 1=serial; thinking off for Qwen3.8)
 
   Example:
   ```php

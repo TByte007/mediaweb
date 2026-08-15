@@ -80,6 +80,9 @@ Shared constants live in `config.php` (gitignored). Start from `config.example.p
 | `MW_LLM_MODEL` | Model id (required on multi-model routers) |
 | `MW_LLM_TIMEOUT` | Chat request timeout seconds (default 60) |
 | `MW_LLM_PARALLEL` | Concurrent LLM chat requests (1=serial; dense~4; MoE~8) |
+| `MW_LLM_TEMPERATURE` | Chat temperature (default 0.1) |
+| `MW_LLM_MAX_TOKENS` | Chat max tokens (default 256) |
+| `MW_LLM_THINKING` | `enable_thinking` for Qwen3.8 (default false) |
 
 Each storage entry is independent: `[ 'fs' => '/path/on/disk', 'url' => '/apache_prefix/' ]`. Only the URL prefixes need to be public.
 

@@ -53,10 +53,12 @@ function mwLlmCurlChat(string $system, string $user)
             ['role' => 'system', 'content' => $system],
             ['role' => 'user', 'content' => $user],
         ],
-        'temperature' => 0.1,
-        'max_tokens' => 256,
+        'temperature' => defined('MW_LLM_TEMPERATURE') ? (float)MW_LLM_TEMPERATURE : 0.1,
+        'max_tokens' => defined('MW_LLM_MAX_TOKENS') ? (int)MW_LLM_MAX_TOKENS : 256,
         'stream' => false,
-        'chat_template_kwargs' => ['enable_thinking' => false],
+        'chat_template_kwargs' => [
+            'enable_thinking' => defined('MW_LLM_THINKING') && MW_LLM_THINKING,
+        ],
     ];
     if (defined('MW_LLM_MODEL') && MW_LLM_MODEL !== '')
         $payload['model'] = MW_LLM_MODEL;
