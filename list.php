@@ -38,6 +38,7 @@ Examples:
     php list.php --deleted
     php list.php --stats
     php list.php --stats-full
+
 USAGE;
     exit(0);
 }
