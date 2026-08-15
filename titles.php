@@ -8,6 +8,19 @@
 
 declare(strict_types=1);
 
+const MW_LOG = 0;
+const MW_LOG_VERBOSE = 1;
+
+/** Max log level to print. --verbose sets this to MW_LOG_VERBOSE. */
+$verbose = MW_LOG;
+
+function mwLog(string $msg, int $level = MW_LOG): void
+{
+    global $verbose;
+    if ($level > $verbose) return;
+    echo $msg . "\n";
+}
+
 /**
  * @return array{
  *   leftover: int,
@@ -16,7 +29,7 @@ declare(strict_types=1);
  *   php_video: int
  * }
  */
-function enrichTitles(\SQLite3 $db, bool $force, bool $useTmdb, bool $useLlm, bool $verbose = false): array
+function enrichTitles(\SQLite3 $db, bool $force, bool $useTmdb, bool $useLlm): array
 {
     $counts = [
         'leftover' => 0,
@@ -43,20 +56,20 @@ function enrichTitles(\SQLite3 $db, bool $force, bool $useTmdb, bool $useLlm, bo
     $counts['leftover'] = mwLinkLeftoverShows($db, $llmOk);
 
     if ($useTmdb && mwTmdbEnabled())
-        $counts = array_merge($counts, mwEnrichTmdb($db, $force, $llmOk, $verbose, $dbExec));
+        $counts = array_merge($counts, mwEnrichTmdb($db, $force, $llmOk, $dbExec));
     elseif (!$useTmdb)
-        echo "TMDB layer skipped: --no-tmdb.\n";
+        mwLog('TMDB layer skipped: --no-tmdb.');
     else
-        echo "TMDB layer skipped: MW_TMDB_TOKEN is empty.\n";
+        mwLog('TMDB layer skipped: MW_TMDB_TOKEN is empty.');
 
     if ($llmOk)
         $counts = array_merge($counts, mwEnrichLlm($db, $force, $dbExec));
     elseif (!$useLlm)
-        echo "LLM display layer skipped: --no-llm.\n";
+        mwLog('LLM display layer skipped: --no-llm.');
     elseif (!mwLlmEnabled())
-        echo "LLM display layer skipped: MW_LLM_URL is empty.\n";
+        mwLog('LLM display layer skipped: MW_LLM_URL is empty.');
     else
-        echo "LLM display layer skipped: llama-server not reachable at " . MW_LLM_URL . "\n";
+        mwLog('LLM display layer skipped: llama-server not reachable at ' . MW_LLM_URL);
 
     $counts['php_video'] = mwEnrichPhpFallback($db, $dbExec);
     return $counts;
@@ -64,11 +77,11 @@ function enrichTitles(\SQLite3 $db, bool $force, bool $useTmdb, bool $useLlm, bo
 
 function enrichTitlesPrintSummary(array $c): void
 {
-    echo "Title enrich complete.\n";
-    echo "  Leftover: {$c['leftover']} videos attached\n";
-    echo "  TMDB:  series={$c['tmdb_series']} episodes={$c['tmdb_ep']} movies={$c['tmdb_movie']}\n";
-    echo "  LLM:   series={$c['llm_series']} videos={$c['llm_video']}\n";
-    echo "  PHP:   videos={$c['php_video']}\n";
+    mwLog('Title enrich complete.');
+    mwLog("  Leftover attached: {$c['leftover']}");
+    mwLog("  TMDB named:        series={$c['tmdb_series']} episodes={$c['tmdb_ep']} movies={$c['tmdb_movie']}");
+    mwLog("  LLM named:         series={$c['llm_series']} videos={$c['llm_video']}");
+    mwLog("  PHP named:         {$c['php_video']}");
 }
 
 /**
@@ -147,7 +160,7 @@ function mwLinkLeftoverShows(\SQLite3 $db, bool $llmOk): int
         }
 
         $sid = null;
-        $via = 'php';
+        $via = 'unique name match';
         $title = $hits[0]['title'] ?? '';
         if (count($hits) === 1) {
             $sid = $hits[0]['id'];
@@ -160,7 +173,7 @@ function mwLinkLeftoverShows(\SQLite3 $db, bool $llmOk): int
             $user = "Folder: $top\nSamples:\n- " . implode("\n- ", $info['fns'])
                 . "\nCandidates:\n" . implode("\n", $lines);
             $out = mwLlmChat($sys, $user);
-            $via = 'llm';
+            $via = 'LLM pick';
             if (is_string($out) && preg_match('/\bpick:\s*(none|L(\d+))\b/i', $out, $m)
                 && strtolower($m[1]) !== 'none') {
                 $idx = (int)$m[2] - 1;
@@ -172,11 +185,16 @@ function mwLinkLeftoverShows(\SQLite3 $db, bool $llmOk): int
         }
 
         if ($sid === null) {
-            $why = count($hits) >= 2 ? ($llmOk ? ' (llm)' : ' (need llm)') : '';
-            echo "leftover | $top  →  none$why\n";
+            $n = count($hits);
+            if ($n >= 2 && $llmOk)
+                mwLog("leftover: could not attach folder \"$top\" (LLM picked none of $n candidates)");
+            elseif ($n >= 2)
+                mwLog("leftover: could not attach folder \"$top\" ($n candidates, LLM disabled)");
+            else
+                mwLog("leftover: could not attach folder \"$top\" (no matching series)");
             continue;
         }
-        echo "leftover | $top  →  series #$sid $title ($via)\n";
+        mwLog("leftover: attached folder \"$top\" to series #$sid \"$title\" ($via)", MW_LOG_VERBOSE);
         foreach ($info['ids'] as $vid) {
             $stmt->reset();
             $stmt->bindValue(1, $sid, SQLITE3_INTEGER);
@@ -271,16 +289,19 @@ function mwTitleTmdbSearchFromLlm(string $user, string $expectKind): ?array
     if ($parsed === null) return null;
     $kind = $parsed['kind'];
     if ($kind !== $expectKind) return null;
-    echo "  llm search: kind=$kind query=\"{$parsed['query']}\" year="
+    mwLog(
+        '  LLM search terms: kind=' . $kind . ' query="' . $parsed['query'] . '" year='
         . ($parsed['year'] ?? 'none')
-        . ($parsed['why'] ? " why={$parsed['why']}" : '') . "\n";
+        . ($parsed['why'] ? " — {$parsed['why']}" : ''),
+        MW_LOG_VERBOSE
+    );
     return $kind === 'movie'
         ? mwTmdbSearchMovie($parsed['query'], $parsed['year'])
         : mwTmdbSearchTv($parsed['query'], $parsed['year']);
 }
 
 /** @param callable(\SQLite3Stmt): bool $dbExec */
-function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, callable $dbExec): array
+function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, callable $dbExec): array
 {
     $minSecs = mwTmdbMinSecs();
     $seriesResolved = 0;
@@ -308,17 +329,17 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $cachedId = $row['tmdb_id'] !== null ? (int)$row['tmdb_id'] : 0;
         if (str_contains(strtolower($top), 'atgm')
             || str_contains(strtolower((string)$row['root_key']), 'atgm')) {
-            if ($verbose) echo "tmdb series #$id | $top  →  (skip ATGM)\n";
+            mwLog("tmdb series #$id \"$top\": skipped (ATGM path)", MW_LOG_VERBOSE);
             continue;
         }
         if ($cachedId > 0) {
             if (!$force && !mwTmdbMetaDue($row, $id)) {
-                if ($verbose) echo "tmdb series #$id | {$row['title']}  →  cached\n";
+                mwLog("tmdb series #$id \"{$row['title']}\": cached (TMDB id $cachedId, meta not due)", MW_LOG_VERBOSE);
                 continue;
             }
             $hit = mwTmdbDetails('tv', $cachedId);
             if ($hit === null) {
-                echo "tmdb series #$id | {$row['title']}  →  (refresh fail id $cachedId)\n";
+                mwLog("tmdb series #$id \"{$row['title']}\": TMDB details failed for cached id $cachedId");
                 continue;
             }
             mwTmdbUpsertGenres($db, $hit['genres']);
@@ -337,33 +358,34 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             $stmtSer->bindValue(7, $hit['overview'], $hit['overview'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
             $stmtSer->bindValue(8, $id, SQLITE3_INTEGER);
             if (!$dbExec($stmtSer)) {
-                echo "tmdb series #$id  →  (db locked)\n";
+                mwLog("tmdb series #$id: database locked");
                 continue;
             }
-            $score = $hit['vote_average'] !== null ? " score={$hit['vote_average']}" : '';
-            echo $force
-                ? "tmdb series #$id | {$row['title']}  →  $newTitle [refresh $cachedId]$score\n"
-                : "tmdb series #$id | {$row['title']}  →  meta [$csv]$score"
-                    . ($hit['type'] ? " type={$hit['type']}" : '') . "\n";
+            $extra = $hit['vote_average'] !== null ? " score={$hit['vote_average']}" : '';
+            if (!$force && $hit['type']) $extra .= " type={$hit['type']}";
+            if ($hit['poster_path']) $extra .= ' poster';
+            mwLog($force
+                ? "tmdb series #$id \"{$row['title']}\" → \"$newTitle\" (refresh id $cachedId$extra)"
+                : "tmdb series #$id \"{$row['title']}\": refreshed meta$extra", MW_LOG_VERBOSE);
             $seriesResolved++;
             continue;
         }
 
         $hit = null;
-        $via = 'folder';
+        $via = 'folder/title';
         if ($llmOk) {
             $hit = mwTitleTmdbSearchFromLlm(
                 "Folder: $top\nCurrent DB title: {$row['title']}\nContext: this is a TV series root folder.",
                 'tv'
             );
-            if ($hit !== null) $via = 'llm search';
+            if ($hit !== null) $via = 'LLM search terms';
         }
         if ($hit === null)
             $hit = mwTmdbSearchTv((string)$row['title'], mwTmdbYearFromText((string)$row['title']));
         if ($hit === null)
             $hit = mwTmdbSearchTv(prettifyFilename($top), mwTmdbYearFromText($top));
         if ($hit === null) {
-            echo "tmdb series #$id | {$row['title']}  →  (no match)\n";
+            mwLog("tmdb series #$id \"{$row['title']}\": no TMDB match (folder \"$top\")");
             continue;
         }
         $detail = mwTmdbDetails('tv', $hit['id']);
@@ -374,10 +396,10 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             $stmtSerIdOnly->bindValue(2, $newTitle);
             $stmtSerIdOnly->bindValue(3, $id, SQLITE3_INTEGER);
             if (!$dbExec($stmtSerIdOnly)) {
-                echo "tmdb series #$id  →  (db locked)\n";
+                mwLog("tmdb series #$id: database locked");
                 continue;
             }
-            echo "tmdb series #$id | {$row['title']}  →  $newTitle [tmdb {$hit['id']}; $via; details fail]\n";
+            mwLog("tmdb series #$id: details failed, stored \"$newTitle\" (id {$hit['id']}, $via)");
             $seriesResolved++;
             continue;
         }
@@ -395,10 +417,10 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $stmtSer->bindValue(7, $detail['overview'], $detail['overview'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
         $stmtSer->bindValue(8, $id, SQLITE3_INTEGER);
         if (!$dbExec($stmtSer)) {
-            echo "tmdb series #$id  →  (db locked)\n";
+            mwLog("tmdb series #$id: database locked");
             continue;
         }
-        echo "tmdb series #$id | {$row['title']}  →  $newTitle [tmdb {$detail['id']}; $via]\n";
+        mwLog("tmdb series #$id \"{$row['title']}\" → \"$newTitle\" (id {$detail['id']}, $via)", MW_LOG_VERBOSE);
         $seriesResolved++;
     }
 
@@ -425,35 +447,34 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $fp = (string)$row['filepath'];
         $dur = $row['duration_secs'] !== null ? (int)$row['duration_secs'] : 0;
         if ($dur < $minSecs) {
-            if ($verbose) echo "tmdb video #$id  →  (short {$dur}s)\n";
+            mwLog("tmdb episode #$id: skipped (duration {$dur}s below minimum {$minSecs}s)", MW_LOG_VERBOSE);
             continue;
         }
         if (mwTmdbPathIsAtgm($fp)) {
-            if ($verbose) echo "tmdb video #$id  →  (skip ATGM)\n";
+            mwLog("tmdb episode #$id: skipped (ATGM path)", MW_LOG_VERBOSE);
             continue;
         }
         if (!$force && str_contains((string)$row['name'], ': ') && !mwTmdbMetaDue($row, $id)) {
-            if ($verbose) echo "tmdb video #$id  →  cached\n";
+            mwLog("tmdb episode #$id: cached (already named, meta not due)", MW_LOG_VERBOSE);
             continue;
         }
         $season = (int)$row['season'];
         $episode = (int)$row['episode'];
         $show = (string)$row['series_title'];
+        $code = sprintf('S%02dE%02d', $season, $episode);
         $localEp = trim((string)($row['episode_title'] ?? ''));
         if ($localEp !== '' && mwTitleIsReleaseToken($localEp)) $localEp = '';
         $ep = mwTmdbTvEpisode((int)$row['tmdb_id'], $season, $episode);
         if ($ep !== null) {
             $epName = $ep['name'];
-            $via = 'tmdb';
+            $via = 'TMDB';
         } elseif ($localEp !== '') {
             $epName = $localEp;
-            $via = 'file';
+            $via = 'filename';
         } else {
-            echo "tmdb video #$id | $show S" . sprintf('%02dE%02d', $season, $episode)
-                . "  →  (no episode)\n";
+            mwLog("tmdb episode #$id $show $code: TMDB has no episode for show id {$row['tmdb_id']}");
             continue;
         }
-        $code = sprintf('S%02dE%02d', $season, $episode);
         $out = "$show: $epName $code";
         $vote = ($ep !== null) ? ($ep['vote_average'] ?? null) : null;
         $still = ($ep !== null) ? ($ep['still_path'] ?? null) : null;
@@ -465,12 +486,12 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $stmtEp->bindValue(4, $overview, $overview !== null ? SQLITE3_TEXT : SQLITE3_NULL);
         $stmtEp->bindValue(5, $id, SQLITE3_INTEGER);
         if (!$dbExec($stmtEp)) {
-            echo "tmdb video #$id  →  (db locked)\n";
+            mwLog("tmdb episode #$id: database locked");
             continue;
         }
-        $score = $vote !== null ? " score=$vote" : '';
-        $stillNote = $still !== null ? ' still' : '';
-        echo "tmdb video #$id | $show | $code  →  $out ($via)$score$stillNote\n";
+        $extra = $vote !== null ? " score=$vote" : '';
+        $extra .= $still !== null ? ' still' : ' no still';
+        mwLog("tmdb episode #$id $show $code → $out ($via$extra)", MW_LOG_VERBOSE);
         $epNamed++;
     }
 
@@ -497,20 +518,20 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $dur = $row['duration_secs'] !== null ? (int)$row['duration_secs'] : 0;
         $cachedId = $row['tmdb_id'] !== null ? (int)$row['tmdb_id'] : 0;
         if ($dur < $minSecs) {
-            if ($verbose) echo "tmdb movie #$id  →  (short {$dur}s)\n";
+            mwLog("tmdb movie #$id: skipped (duration {$dur}s below minimum {$minSecs}s)", MW_LOG_VERBOSE);
             continue;
         }
         if (mwTmdbPathIsAtgm($fp)) {
-            if ($verbose) echo "tmdb movie #$id  →  (skip ATGM)\n";
+            mwLog("tmdb movie #$id: skipped (ATGM path)", MW_LOG_VERBOSE);
             continue;
         }
         foreach (explode('/', str_replace('\\', '/', $fp)) as $seg) {
             if (!isSeriesJunkDir($seg)) continue;
-            if ($verbose) echo "tmdb movie #$id  →  (skip extras)\n";
+            mwLog("tmdb movie #$id \"$fn\": skipped (extras/junk folder)", MW_LOG_VERBOSE);
             continue 2;
         }
         if ($row['season'] !== null || mwFilenameHasEpisodeCode($fn)) {
-            if ($verbose) echo "tmdb movie #$id | $fn  →  (skip episode)\n";
+            mwLog("tmdb movie #$id \"$fn\": skipped (looks like a TV episode, not series-linked)", MW_LOG_VERBOSE);
             continue;
         }
         if ($cachedId > 0) {
@@ -519,12 +540,12 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
                 || mwTitleLooksDirty($name)
                 || !preg_match('/\((?:19|20)\d{2}\)\s*$/', $name);
             if (!$force && !mwTmdbMetaDue($row, $id) && !$needName) {
-                if ($verbose) echo "tmdb movie #$id  →  cached\n";
+                mwLog("tmdb movie #$id: cached (TMDB id $cachedId, meta not due)", MW_LOG_VERBOSE);
                 continue;
             }
             $hit = mwTmdbDetails('movie', $cachedId);
             if ($hit === null) {
-                echo "tmdb movie #$id  →  (refresh fail id $cachedId)\n";
+                mwLog("tmdb movie #$id: TMDB details failed for cached id $cachedId");
                 continue;
             }
             mwTmdbUpsertGenres($db, $hit['genres']);
@@ -539,29 +560,30 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             $stmtMov->bindValue(6, $hit['overview'], $hit['overview'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
             $stmtMov->bindValue(7, $id, SQLITE3_INTEGER);
             if (!$dbExec($stmtMov)) {
-                echo "tmdb movie #$id  →  (db locked)\n";
+                mwLog("tmdb movie #$id: database locked");
                 continue;
             }
-            $score = $hit['vote_average'] !== null ? " score={$hit['vote_average']}" : '';
-            echo "tmdb movie #$id  →  $out [refresh $cachedId]$score\n";
+            $extra = $hit['vote_average'] !== null ? " score={$hit['vote_average']}" : '';
+            if ($hit['poster_path']) $extra .= ' poster';
+            mwLog("tmdb movie #$id: \"$out\" (refresh id $cachedId$extra)", MW_LOG_VERBOSE);
             $movieNamed++;
             continue;
         }
 
         $heur = videoPrettyTitle($fn, $row['title'], $fp);
         $hit = null;
-        $via = 'heur';
+        $via = 'filename hint';
         if ($llmOk) {
             $hit = mwTitleTmdbSearchFromLlm(
                 "Folder/file display hint: $heur\nFilename: $fn\nContext: this is a movie (not a TV series pack).",
                 'movie'
             );
-            if ($hit !== null) $via = 'llm search';
+            if ($hit !== null) $via = 'LLM search terms';
         }
         if ($hit === null)
             $hit = mwTmdbSearchMovie($heur, mwTmdbYearFromText($heur) ?? mwTmdbYearFromText($fn));
         if ($hit === null) {
-            echo "tmdb movie #$id | $heur  →  (no match)\n";
+            mwLog("tmdb movie #$id: no TMDB match for \"$heur\"");
             continue;
         }
         $detail = mwTmdbDetails('movie', $hit['id']);
@@ -572,10 +594,10 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
             $stmtMovIdOnly->bindValue(2, $hit['id'], SQLITE3_INTEGER);
             $stmtMovIdOnly->bindValue(3, $id, SQLITE3_INTEGER);
             if (!$dbExec($stmtMovIdOnly)) {
-                echo "tmdb movie #$id  →  (db locked)\n";
+                mwLog("tmdb movie #$id: database locked");
                 continue;
             }
-            echo "tmdb movie #$id | $heur  →  $out [tmdb {$hit['id']}; $via; details fail]\n";
+            mwLog("tmdb movie #$id: details failed, stored \"$out\" (id {$hit['id']}, $via)");
             $movieNamed++;
             continue;
         }
@@ -591,10 +613,12 @@ function mwEnrichTmdb(\SQLite3 $db, bool $force, bool $llmOk, bool $verbose, cal
         $stmtMov->bindValue(6, $detail['overview'], $detail['overview'] !== null ? SQLITE3_TEXT : SQLITE3_NULL);
         $stmtMov->bindValue(7, $id, SQLITE3_INTEGER);
         if (!$dbExec($stmtMov)) {
-            echo "tmdb movie #$id  →  (db locked)\n";
+            mwLog("tmdb movie #$id: database locked");
             continue;
         }
-        echo "tmdb movie #$id | $heur  →  $out [tmdb {$detail['id']}; $via]\n";
+        $extra = $detail['vote_average'] !== null ? " score={$detail['vote_average']}" : '';
+        if ($detail['poster_path']) $extra .= ' poster';
+        mwLog("tmdb movie #$id \"$heur\" → \"$out\" (id {$detail['id']}, $via$extra)", MW_LOG_VERBOSE);
         $movieNamed++;
     }
 
@@ -695,12 +719,18 @@ function mwEnrichLlm(\SQLite3 $db, bool $force, callable $dbExec): array
             $retry = mwLlmChat($sysSeries, $user . "\nReminder: your reply must end with (YYYY).");
             if ($retry !== null) $out = $retry;
         }
-        echo "llm series #{$row['id']} | $top | $title  →  " . ($out === null ? '(fail)' : $out) . "\n";
-        if ($out === null) continue;
+        if ($out === null) {
+            mwLog("llm series #{$row['id']} \"$title\": LLM returned no title (folder \"$top\")");
+            continue;
+        }
         $stmtSer->reset();
         $stmtSer->bindValue(1, $out);
         $stmtSer->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
-        if (!$dbExec($stmtSer)) continue;
+        if (!$dbExec($stmtSer)) {
+            mwLog("llm series #{$row['id']}: database locked");
+            continue;
+        }
+        mwLog("llm series #{$row['id']} \"$title\" → \"$out\" (folder \"$top\")", MW_LOG_VERBOSE);
         $seriesUpdated++;
     }
 
@@ -737,11 +767,15 @@ function mwEnrichLlm(\SQLite3 $db, bool $force, callable $dbExec): array
 
         $phpOut = mwTitleEpisodePhp($show, $code, $epTitle, $fn);
         if ($phpOut !== null) {
-            echo "llm video #{$row['id']} | $show | $heur  →  $phpOut (php)\n";
             $stmtName->reset();
             $stmtName->bindValue(1, $phpOut);
             $stmtName->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
-            if ($dbExec($stmtName)) $videoNamed++;
+            if (!$dbExec($stmtName)) {
+                mwLog("llm video #{$row['id']}: database locked");
+                continue;
+            }
+            mwLog("llm video #{$row['id']}: named \"$phpOut\" (PHP)", MW_LOG_VERBOSE);
+            $videoNamed++;
             continue;
         }
 
@@ -750,7 +784,6 @@ function mwEnrichLlm(\SQLite3 $db, bool $force, callable $dbExec): array
         $jobs[] = [
             'id' => (int)$row['id'],
             'fn' => $fn,
-            'rel' => $rel,
             'heur' => $heur,
             'show' => $show,
             'code' => $code,
@@ -774,7 +807,7 @@ function mwEnrichLlm(\SQLite3 $db, bool $force, callable $dbExec): array
     if ($jobs !== []) {
         $total = count($jobs);
         $parallel = mwLlmParallel();
-        echo "LLM video jobs: $total (parallel=$parallel)\n";
+        mwLog("LLM: naming $total videos (parallel=$parallel)");
         flush();
         $done = 0;
         foreach (array_chunk($jobs, $parallel) as $chunk) {
@@ -784,12 +817,11 @@ function mwEnrichLlm(\SQLite3 $db, bool $force, callable $dbExec): array
                 $show = $job['show'];
                 $code = $job['code'];
                 $heur = $job['heur'];
-                $rel = $job['rel'];
                 $user = $job['user'];
                 $out = $outs[$j] ?? null;
 
                 if ($out !== null && strcasecmp($out, 'SKIP') !== 0 && $titleEchoesLabel($out)) {
-                    echo "llm video #$id | $show | $heur  →  (label-echo)\n";
+                    mwLog("llm video #$id: LLM echoed field labels (hint: $heur)");
                     continue;
                 }
                 if ($out !== null && strcasecmp($out, 'SKIP') === 0)
@@ -805,15 +837,22 @@ function mwEnrichLlm(\SQLite3 $db, bool $force, callable $dbExec): array
                     && !preg_match('/S\d{1,2}E\d{1,2}\s*$/i', $out)) {
                     $out = rtrim($out) . " $code";
                 }
-                echo "llm video #$id | $show | $heur | $rel  →  " . ($out ?? '(fail)') . "\n";
-                if ($out === null) continue;
+                if ($out === null) {
+                    mwLog("llm video #$id: no title (hint: $heur)");
+                    continue;
+                }
                 $stmtName->reset();
                 $stmtName->bindValue(1, $out);
                 $stmtName->bindValue(2, $id, SQLITE3_INTEGER);
-                if ($dbExec($stmtName)) $videoNamed++;
+                if (!$dbExec($stmtName)) {
+                    mwLog("llm video #$id: database locked");
+                    continue;
+                }
+                mwLog("llm video #$id: named \"$out\" (LLM) hint=\"$heur\"", MW_LOG_VERBOSE);
+                $videoNamed++;
             }
             $done += count($chunk);
-            echo "LLM video progress: $done/$total\n";
+            mwLog("LLM video progress: $done/$total", MW_LOG_VERBOSE);
             flush();
         }
     }
@@ -851,12 +890,18 @@ function mwEnrichPhpFallback(\SQLite3 $db, callable $dbExec): int
             $out = videoPrettyTitle($fn, $row['title'], $fp);
             if ($out === '' || $out === $fn) $out = null;
         }
-        if ($out === null) continue;
+        if ($out === null) {
+            mwLog("php video #{$row['id']}: no title from filename", MW_LOG_VERBOSE);
+            continue;
+        }
         $stmt->reset();
         $stmt->bindValue(1, $out);
         $stmt->bindValue(2, (int)$row['id'], SQLITE3_INTEGER);
-        if (!$dbExec($stmt)) continue;
-        echo "php video #{$row['id']}  →  $out\n";
+        if (!$dbExec($stmt)) {
+            mwLog("php video #{$row['id']}: database locked");
+            continue;
+        }
+        mwLog("php video #{$row['id']}: named \"$out\" from filename", MW_LOG_VERBOSE);
         $named++;
     }
     return $named;

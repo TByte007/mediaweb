@@ -24,7 +24,6 @@ require __DIR__ . '/titles.php';
 
 $scanDirs = array_map(fn($d) => rtrim($d['fs'], '/'), MW_MEDIA_DIRS);
 $dbFile         = MW_DB;
-$verbose        = false;
 $scanOnly       = false;
 $forceRescan    = false;
 $titlesBackfill = false;
@@ -40,13 +39,13 @@ $opts = getopt('', [
 
 if (isset($opts['help'])) {
     $dirList = implode("\n", array_map(fn($d) => "    - {$d['fs']}  ({$d['url']})", MW_MEDIA_DIRS));
-    echo <<<USAGE
+    mwLog(rtrim(<<<USAGE
 Usage: php scan.php [options]
 
 Options:
     --dir=DIR            Comma-separated directories to scan (default: MW_MEDIA_DIRS)
     --db=FILE            SQLite database file (default: MW_DB)
-    --verbose            Show progress as files are processed
+    --verbose            Per-file/per-title log (default: failures + summary)
     --scan-only          Refresh needs_fix (PTS probe + MPEG-4/Xvid in any container)
     --force-rescan       Re-run metadata extract on files already in the database
     --titles-backfill    Re-link series + enrich titles/genres (no tree walk)
@@ -84,13 +83,13 @@ Behavior:
         Full rebuild (refresh from cached ids + gaps):
         php scan.php --titles-backfill --force
 
-USAGE;
-    echo str_replace('MW_DB', MW_DB, "Default DB: MW_DB\n");
+USAGE));
+    mwLog(str_replace('MW_DB', MW_DB, 'Default DB: MW_DB'));
     exit(0);
 }
 
 if (!empty($opts['db']))              $dbFile         = $opts['db'];
-if (isset($opts['verbose']))          $verbose        = true;
+if (isset($opts['verbose']))          $verbose        = MW_LOG_VERBOSE;
 if (isset($opts['scan-only']))        $scanOnly       = true;
 if (isset($opts['force-rescan']))     $forceRescan    = true;
 if (isset($opts['titles-backfill']))  $titlesBackfill = true;
@@ -101,7 +100,7 @@ if (isset($opts['no-llm']))           $useLlm         = false;
 $skipMediaTools = $titlesBackfill;
 if (!$skipMediaTools) {
     if (!file_exists(MW_FFMPEG)) {
-        echo "Error: ffmpeg not found at " . MW_FFMPEG . "\n";
+        mwLog('Error: ffmpeg not found at ' . MW_FFMPEG);
         exit(1);
     }
 
@@ -112,13 +111,13 @@ if (!$skipMediaTools) {
 
     $scanDirs = array_values(array_filter($scanDirs, fn($d) => is_dir($d)));
     if (empty($scanDirs)) {
-        echo "Error: no valid scan directories configured/found.\n";
+        mwLog('Error: no valid scan directories configured/found.');
         exit(1);
     }
 
     exec('which mediainfo', $_, $code);
     if ($code !== 0) {
-        echo "Error: mediainfo is not installed or not in PATH\n";
+        mwLog('Error: mediainfo is not installed or not in PATH');
         exit(1);
     }
 }
@@ -126,7 +125,7 @@ if (!$skipMediaTools) {
 try {
     $db = new \SQLite3($dbFile);
 } catch (\Exception $e) {
-    echo "Error opening database `$dbFile`: {$e->getMessage()}\n";
+    mwLog("Error opening database `$dbFile`: {$e->getMessage()}");
     exit(1);
 }
 
@@ -282,12 +281,12 @@ if ($titlesBackfill) {
     $db->exec('BEGIN;');
     $stats = linkSeries($db);
     $db->exec('COMMIT;');
-    echo "Titles backfill complete.\n";
-    echo "  Series:   {$stats['series']} shows\n";
-    echo "  Linked:   {$stats['linked']} episodes\n";
-    $enrich = enrichTitles($db, $forceNames, $useTmdb, $useLlm, $verbose);
+    mwLog('Titles backfill complete.');
+    mwLog("  Series:   {$stats['series']} shows");
+    mwLog("  Linked:   {$stats['linked']} episodes");
+    $enrich = enrichTitles($db, $forceNames, $useTmdb, $useLlm);
     enrichTitlesPrintSummary($enrich);
-    echo "  Database: $dbFile\n";
+    mwLog("  Database: $dbFile");
     $db->close();
     exit(0);
 }
@@ -338,18 +337,18 @@ if (!$forceRescan) {
 $scannedPaths = [];
 $extensions = ['mkv', 'mp4', 'avi', 'mov', 'webm', 'wmv', 'flv', 'm4v'];
 
-function safeWalk(string $dir, array &$files, array $extensions, bool $verbose): void
+function safeWalk(string $dir, array &$files, array $extensions): void
 {
     $handle = @opendir($dir);
     if (!$handle) {
-        if ($verbose) echo "  [SKIP] Can't read dir: $dir\n";
+        mwLog("skip: cannot read directory: $dir", MW_LOG_VERBOSE);
         return;
     }
     while (($entry = readdir($handle)) !== false) {
         if ($entry === '.' || $entry === '..') continue;
         $fullPath = $dir . '/' . $entry;
         if (is_dir($fullPath)) {
-            safeWalk($fullPath, $files, $extensions, $verbose);
+            safeWalk($fullPath, $files, $extensions);
         } elseif (is_file($fullPath) && is_readable($fullPath)) {
             $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
             if ($ext !== '' && in_array($ext, $extensions, true)) {
@@ -554,10 +553,10 @@ function adoptMovedVideo(\SQLite3 $db, string $filepath, array &$knownFiles): ?s
 
 $files = [];
 foreach ($scanDirs as $scanDir) {
-    safeWalk($scanDir, $files, $extensions, $verbose);
+    safeWalk($scanDir, $files, $extensions);
 }
 
-echo 'Found ' . count($files) . " video files to scan\n";
+mwLog('Found ' . count($files) . ' video files on disk');
 
 $db->exec('BEGIN;');
 
@@ -580,7 +579,7 @@ foreach ($files as $filepath) {
         if ($from !== null) {
             $known = true;
             $moved++;
-            if ($verbose) echo "  [MOVE] $from → $filepath\n";
+            mwLog("move: adopted existing DB row $from → $filepath", MW_LOG_VERBOSE);
             if (!$forceRescan && !$scanOnly) continue;
         }
     }
@@ -605,7 +604,7 @@ foreach ($files as $filepath) {
                     $stmtFlag->bindValue(2, $filepath);
                     $stmtFlag->execute();
                     $updated++;
-                    if ($verbose) echo "  [CLR]  $filepath (not a PTS candidate)\n";
+                    mwLog("clear: dropped stale needs_fix (not a PTS candidate): $filepath", MW_LOG_VERBOSE);
                 } else {
                     $skipped++;
                 }
@@ -614,7 +613,11 @@ foreach ($files as $filepath) {
         } elseif (!$isAvi) {
             // Unknown non-AVI: need mediainfo to know if it's legacy MPEG-4.
             $json = mediainfoJson($filepath);
-            if (!$json) { $errors++; continue; }
+            if (!$json) {
+                mwLog("fail: mediainfo returned nothing: $filepath");
+                $errors++;
+                continue;
+            }
             $video = tracksByType($json, 'Video')[0] ?? [];
             $format = $video['Format'] ?? null;
             $codec = $video['CodecID'] ?? ($video['Format_Profile'] ?? null);
@@ -625,9 +628,9 @@ foreach ($files as $filepath) {
             $fails = detectNeedsFix($filepath, $format, $codec);
             if ($fails) {
                 $flagged++;
-                if ($verbose) echo "  [FLAG] $filepath\n";
-            } elseif ($verbose) {
-                echo "  [OK]   $filepath\n";
+                mwLog("flag: needs_fix (bad PTS/DTS): $filepath", MW_LOG_VERBOSE);
+            } else {
+                mwLog("ok: PTS/DTS looks fine: $filepath", MW_LOG_VERBOSE);
             }
             upsertVideo($stmtUpsert, $filepath, $json, $fails ? 1 : 0);
             if ($processed % 200 === 0) { $db->exec('COMMIT;'); $db->exec('BEGIN;'); }
@@ -637,9 +640,9 @@ foreach ($files as $filepath) {
         $fails = detectNeedsFix($filepath, $format, $codec);
         if ($fails) {
             $flagged++;
-            if ($verbose) echo "  [FLAG] $filepath\n";
-        } elseif ($verbose) {
-            echo "  [OK]   $filepath\n";
+            mwLog("flag: needs_fix (bad PTS/DTS): $filepath", MW_LOG_VERBOSE);
+        } else {
+            mwLog("ok: PTS/DTS looks fine: $filepath", MW_LOG_VERBOSE);
         }
         if ($known) {
             $stmtFlag->reset();
@@ -649,7 +652,11 @@ foreach ($files as $filepath) {
             $updated++;
         } else {
             $json = mediainfoJson($filepath);
-            if (!$json) { $errors++; continue; }
+            if (!$json) {
+                mwLog("fail: mediainfo returned nothing: $filepath");
+                $errors++;
+                continue;
+            }
             upsertVideo($stmtUpsert, $filepath, $json, $fails ? 1 : 0);
         }
         if ($processed % 200 === 0) { $db->exec('COMMIT;'); $db->exec('BEGIN;'); }
@@ -658,13 +665,13 @@ foreach ($files as $filepath) {
 
     if ($known && !$forceRescan) {
         $skipped++;
-        if ($verbose) echo "  [SKIP] $filepath\n";
+        mwLog("skip: already in database: $filepath", MW_LOG_VERBOSE);
         continue;
     }
 
     $json = mediainfoJson($filepath);
     if (!$json) {
-        if ($verbose) echo "  [FAIL] No info: $filepath\n";
+        mwLog("fail: mediainfo returned nothing: $filepath");
         $errors++;
         continue;
     }
@@ -675,10 +682,10 @@ foreach ($files as $filepath) {
     $needsFix = detectNeedsFix($filepath, $format, $codec) ? 1 : 0;
     if ($needsFix) {
         $flagged++;
-        if ($verbose) echo "  [FLAG] $filepath\n";
+        mwLog("flag: needs_fix (bad PTS/DTS): $filepath", MW_LOG_VERBOSE);
     }
 
-    if ($verbose) echo "  [$processed/" . count($files) . "] $filepath\n";
+    mwLog("scanned [$processed/" . count($files) . "]: $filepath", MW_LOG_VERBOSE);
     upsertVideo($stmtUpsert, $filepath, $json, $needsFix);
 
     if ($processed % 500 === 0) {
@@ -701,7 +708,7 @@ if (!$dirOverride && !empty($knownFiles) && !$scanOnly) {
             $stmtDel->execute();
         }
         $db->exec('COMMIT;');
-        echo '  Deleted: ' . count($deletedSet) . "\n";
+        mwLog('  Deleted: ' . count($deletedSet) . ' (file gone, is_deleted=1)');
     }
 }
 
@@ -711,20 +718,20 @@ if (!$scanOnly) {
     $db->exec('BEGIN;');
     $seriesStats = linkSeries($db);
     $db->exec('COMMIT;');
-    $enrich = enrichTitles($db, $forceNames, $useTmdb, $useLlm, $verbose);
+    $enrich = enrichTitles($db, $forceNames, $useTmdb, $useLlm);
 }
 
-echo "\nScan complete.\n";
-echo "  Processed: $processed\n";
-echo "  Skipped:   $skipped (already in database)\n";
-if ($moved > 0) echo "  Moved:     $moved (adopted existing row)\n";
-if ($scanOnly) echo "  Updated:   $updated (needs_fix refreshed)\n";
-echo "  Flagged:   $flagged (needs_fix / PTS browser warning)\n";
-echo "  Errors:    $errors\n";
+mwLog("\nScan complete.");
+mwLog("  Files:     $processed on disk");
+mwLog("  Skipped:   $skipped already in database");
+if ($moved > 0) mwLog("  Moved:     $moved adopted existing row");
+if ($scanOnly) mwLog("  Updated:   $updated needs_fix refreshed");
+mwLog("  Flagged:   $flagged needs_fix (bad PTS/DTS)");
+mwLog("  Errors:    $errors mediainfo failed");
 if (!$scanOnly) {
-    echo "  Series:    {$seriesStats['series']} shows, {$seriesStats['linked']} episodes linked\n";
+    mwLog("  Series:    {$seriesStats['series']} shows, {$seriesStats['linked']} episodes linked");
     if ($enrich !== null) enrichTitlesPrintSummary($enrich);
 }
-echo "  Database:  $dbFile\n";
+mwLog("  Database:  $dbFile");
 
 $db->close();
